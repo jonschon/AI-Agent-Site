@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     clustering_window_hours: int = 72
     clustering_min_confidence: float = 0.58
     clustering_exception_floor: float = 0.45
+    story_merge_window_hours: int = 72
+    story_merge_min_confidence: float = 0.72
+    story_merge_max_candidates: int = 80
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

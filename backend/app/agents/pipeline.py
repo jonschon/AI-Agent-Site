@@ -13,6 +13,7 @@ from app.models.news import (
     AgentRun,
     Article,
     ArticleEmbedding,
+    DiscussionLink,
     ExceptionItem,
     FeedSnapshot,
     FeedSnapshotItem,
@@ -325,6 +326,163 @@ class ClusteringAgent(BaseAgent):
             raise
 
 
+class MergeClustersAgent(BaseAgent):
+    name = "merge_clusters"
+
+    def _story_embedding(self, db: Session, story_id: int) -> list[float]:
+        embeddings = db.execute(
+            select(ArticleEmbedding.embedding)
+            .join(StoryArticle, StoryArticle.article_id == ArticleEmbedding.article_id)
+            .where(StoryArticle.story_id == story_id)
+            .order_by(desc(StoryArticle.added_at))
+            .limit(6)
+        ).scalars().all()
+        if not embeddings:
+            return []
+
+        size = len(embeddings[0])
+        sums = [0.0] * size
+        valid_count = 0
+        for embedding in embeddings:
+            if not isinstance(embedding, list) or len(embedding) != size:
+                continue
+            for idx, value in enumerate(embedding):
+                sums[idx] += float(value)
+            valid_count += 1
+        if valid_count == 0:
+            return []
+        return [value / valid_count for value in sums]
+
+    def _merge_story_into(self, db: Session, target: Story, source: Story, confidence: float) -> None:
+        # Move article links from duplicate cluster into the canonical story.
+        source_links = db.execute(
+            select(StoryArticle).where(StoryArticle.story_id == source.id).order_by(desc(StoryArticle.added_at))
+        ).scalars().all()
+        for link in source_links:
+            existing = db.execute(
+                select(StoryArticle).where(
+                    StoryArticle.story_id == target.id, StoryArticle.article_id == link.article_id
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.cluster_confidence = max(existing.cluster_confidence, link.cluster_confidence)
+                db.delete(link)
+            else:
+                link.story_id = target.id
+                link.cluster_confidence = max(link.cluster_confidence, confidence)
+                db.add(link)
+
+        source_tags = db.execute(select(StoryTag).where(StoryTag.story_id == source.id)).scalars().all()
+        for tag_rel in source_tags:
+            existing_tag = db.execute(
+                select(StoryTag).where(StoryTag.story_id == target.id, StoryTag.tag_id == tag_rel.tag_id)
+            ).scalar_one_or_none()
+            if existing_tag:
+                existing_tag.confidence = max(existing_tag.confidence, tag_rel.confidence)
+                db.delete(tag_rel)
+            else:
+                tag_rel.story_id = target.id
+                db.add(tag_rel)
+
+        source_discussions = db.execute(
+            select(DiscussionLink).where(DiscussionLink.story_id == source.id)
+        ).scalars().all()
+        for discussion in source_discussions:
+            existing_discussion = db.execute(
+                select(DiscussionLink).where(
+                    DiscussionLink.story_id == target.id, DiscussionLink.url == discussion.url
+                )
+            ).scalar_one_or_none()
+            if existing_discussion:
+                existing_discussion.engagement_score = max(
+                    existing_discussion.engagement_score, discussion.engagement_score
+                )
+                db.delete(discussion)
+            else:
+                discussion.story_id = target.id
+                db.add(discussion)
+
+        target.last_updated_at = datetime.now(timezone.utc)
+        target.importance_score = max(target.importance_score, source.importance_score)
+        target.momentum_score = max(target.momentum_score, source.momentum_score)
+
+        source.status = StoryStatus.archived
+        source.tier = StoryTier.archived
+        source.last_updated_at = datetime.now(timezone.utc)
+
+    def run(self, db: Session) -> AgentResult:
+        run = self._start_run(db)
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.story_merge_window_hours)
+            stories = db.execute(
+                select(Story)
+                .where(Story.status == StoryStatus.active, Story.last_updated_at >= cutoff)
+                .order_by(desc(Story.importance_score), desc(Story.last_updated_at))
+                .limit(settings.story_merge_max_candidates)
+            ).scalars().all()
+
+            merged_count = 0
+            archived_ids: set[int] = set()
+            embeddings_cache: dict[int, list[float]] = {}
+
+            for idx, primary in enumerate(stories):
+                if primary.id in archived_ids or primary.status != StoryStatus.active:
+                    continue
+
+                primary_embedding = embeddings_cache.get(primary.id)
+                if primary_embedding is None:
+                    primary_embedding = self._story_embedding(db, primary.id)
+                    embeddings_cache[primary.id] = primary_embedding
+
+                primary_tokens = tokenize(primary.headline or "")
+                primary_entities = [t for t in (primary.headline or "").split() if t[:1].isupper()]
+
+                for candidate in stories[idx + 1 :]:
+                    if candidate.id in archived_ids or candidate.status != StoryStatus.active:
+                        continue
+
+                    candidate_embedding = embeddings_cache.get(candidate.id)
+                    if candidate_embedding is None:
+                        candidate_embedding = self._story_embedding(db, candidate.id)
+                        embeddings_cache[candidate.id] = candidate_embedding
+
+                    semantic = cosine_similarity(primary_embedding, candidate_embedding)
+                    lexical = lexical_overlap(primary_tokens, tokenize(candidate.headline or ""))
+                    entity = overlap_ratio(
+                        primary_entities,
+                        [t for t in (candidate.headline or "").split() if t[:1].isupper()],
+                    )
+                    confidence = cluster_confidence(semantic=semantic, lexical=lexical, entity_overlap=entity)
+
+                    if confidence < settings.story_merge_min_confidence:
+                        continue
+
+                    primary_articles = db.execute(
+                        select(StoryArticle).where(StoryArticle.story_id == primary.id)
+                    ).scalars().all()
+                    candidate_articles = db.execute(
+                        select(StoryArticle).where(StoryArticle.story_id == candidate.id)
+                    ).scalars().all()
+
+                    target = primary
+                    source = candidate
+                    if len(candidate_articles) > len(primary_articles):
+                        target = candidate
+                        source = primary
+
+                    self._merge_story_into(db, target=target, source=source, confidence=confidence)
+                    archived_ids.add(source.id)
+                    merged_count += 1
+            db.commit()
+
+            result = AgentResult(processed=len(stories), updated=merged_count)
+            self._finish_run(db, run, result)
+            return result
+        except Exception as exc:
+            self._fail_run(db, run, exc)
+            raise
+
+
 class SummarizationTaggingAgent(BaseAgent):
     name = "summarization_tagging"
 
@@ -503,6 +661,7 @@ PIPELINE = {
     "normalization": NormalizationAgent(),
     "embedding": EmbeddingAgent(),
     "clustering": ClusteringAgent(),
+    "merge_clusters": MergeClustersAgent(),
     "summarization_tagging": SummarizationTaggingAgent(),
     "ranking": RankingAgent(),
     "publishing": PublishingAgent(),
@@ -517,6 +676,7 @@ def run_pipeline(db: Session) -> dict[str, dict]:
         "normalization",
         "embedding",
         "clustering",
+        "merge_clusters",
         "summarization_tagging",
         "ranking",
         "publishing",

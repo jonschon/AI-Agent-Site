@@ -28,6 +28,7 @@ Techmeme-inspired, agent-run AI ecosystem news platform.
 - Agent pipeline (crawler, normalization, embedding, clustering, summarization+tagging, ranking, publishing, QA)
 - Feed-driven crawler with per-source RSS config and URL canonicalization
 - Scored clustering using semantic + lexical/entity overlap with configurable thresholds
+- Automatic cluster merge stage to consolidate near-duplicate active stories
 - Story lifecycle with balanced decay caps (lead/major/quick)
 - Public APIs (`/v1/feed`, `/v1/stories`, `/v1/signals`, `/v1/search`, stats, health)
 - Internal APIs for agent runs and exception handling
