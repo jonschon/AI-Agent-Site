@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from slugify import slugify
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -532,28 +532,95 @@ class SummarizationTaggingAgent(BaseAgent):
 class RankingAgent(BaseAgent):
     name = "ranking"
 
+    def _to_aware_utc(self, dt: datetime) -> datetime:
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    def _source_signal(self, db: Session, story_id: int) -> tuple[int, float]:
+        rows = db.execute(
+            select(Source.id, Source.authority_score)
+            .join(Article, Article.source_id == Source.id)
+            .join(StoryArticle, StoryArticle.article_id == Article.id)
+            .where(StoryArticle.story_id == story_id)
+        ).all()
+        if not rows:
+            return 0, 0.0
+
+        authority_by_source: dict[int, float] = {}
+        for source_id, authority_score in rows:
+            current = authority_by_source.get(source_id)
+            if current is None or authority_score > current:
+                authority_by_source[source_id] = float(authority_score)
+        diversity = len(authority_by_source)
+        avg_authority = sum(authority_by_source.values()) / diversity if diversity else 0.0
+        return diversity, avg_authority
+
+    def _discussion_velocity(self, db: Session, story_id: int) -> float:
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_sum = db.execute(
+            select(func.coalesce(func.sum(DiscussionLink.engagement_score), 0.0)).where(
+                DiscussionLink.story_id == story_id,
+                DiscussionLink.captured_at >= recent_cutoff,
+            )
+        ).scalar_one()
+        return float(recent_sum or 0.0)
+
+    def _entity_weight(self, db: Session, story_id: int) -> float:
+        avg_confidence = db.execute(
+            select(func.avg(StoryTag.confidence)).where(StoryTag.story_id == story_id)
+        ).scalar_one_or_none()
+        return float(avg_confidence or 0.0)
+
+    def _new_sources_velocity(self, db: Session, story_id: int) -> int:
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+        count = db.execute(
+            select(func.count(StoryArticle.article_id)).where(
+                StoryArticle.story_id == story_id,
+                StoryArticle.added_at >= recent_cutoff,
+            )
+        ).scalar_one()
+        return int(count or 0)
+
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
             stories = db.execute(select(Story).where(Story.status == StoryStatus.active)).scalars().all()
             now = datetime.now(timezone.utc)
+            story_diversity: dict[int, int] = {}
             for story in stories:
-                source_count = db.execute(
-                    select(StoryArticle).where(StoryArticle.story_id == story.id)
-                ).scalars().all()
-                diversity = len(source_count)
-                hours_old = (now - story.first_seen_at).total_seconds() / 3600
+                diversity, avg_authority = self._source_signal(db, story.id)
+                story_diversity[story.id] = diversity
+                hours_old = (now - self._to_aware_utc(story.first_seen_at)).total_seconds() / 3600
+                discussion_velocity = self._discussion_velocity(db, story.id)
+                entity_weight = self._entity_weight(db, story.id)
                 previous = story.importance_score
-                current = score_story(diversity, authority=0.7, hours_old=hours_old, discussion_velocity=10)
+                current = score_story(
+                    source_diversity=diversity,
+                    authority=avg_authority,
+                    hours_old=hours_old,
+                    discussion_velocity=discussion_velocity,
+                    entity_weight=entity_weight,
+                    w_authority=settings.ranking_weight_authority,
+                    w_diversity=settings.ranking_weight_diversity,
+                    w_recency=settings.ranking_weight_recency,
+                    w_discussion=settings.ranking_weight_discussion,
+                    w_entity=settings.ranking_weight_entity,
+                )
                 story.importance_score = current
-                story.momentum_score = momentum(previous, current, max(0, diversity - 1))
+                story.momentum_score = momentum(previous, current, self._new_sources_velocity(db, story.id))
 
             ordered = sorted(stories, key=lambda s: s.importance_score, reverse=True)
-            for idx, story in enumerate(ordered):
-                if idx == 0:
+            lead_assigned = False
+            major_count = 0
+            for story in ordered:
+                diversity = story_diversity.get(story.id, 0)
+                if not lead_assigned and diversity >= settings.ranking_lead_min_source_diversity:
                     story.tier = StoryTier.lead
-                elif idx < 6:
+                    lead_assigned = True
+                elif major_count < 5:
                     story.tier = StoryTier.major
+                    major_count += 1
                 else:
                     story.tier = StoryTier.quick
 
@@ -565,6 +632,9 @@ class RankingAgent(BaseAgent):
                     story.tier = StoryTier.major
                 elif retained == "quick":
                     story.tier = StoryTier.quick
+
+            if ordered and not lead_assigned:
+                ordered[0].tier = StoryTier.lead
 
             db.commit()
             result = AgentResult(processed=len(stories), updated=len(stories))

@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     story_merge_window_hours: int = 72
     story_merge_min_confidence: float = 0.72
     story_merge_max_candidates: int = 80
+    ranking_weight_authority: float = 0.30
+    ranking_weight_diversity: float = 0.27
+    ranking_weight_recency: float = 0.23
+    ranking_weight_discussion: float = 0.12
+    ranking_weight_entity: float = 0.08
+    ranking_lead_min_source_diversity: int = 2
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
