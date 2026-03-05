@@ -26,6 +26,7 @@ from app.models.news import (
     StoryTier,
     Tag,
 )
+from app.services.crawler import build_synthetic_entry, fetch_feed_entries
 from app.services.model_gateway import generate_embedding, infer_tags, summarize_story
 from app.services.scoring import apply_retention_tier, momentum, score_story
 
@@ -74,12 +75,29 @@ class CrawlerAgent(BaseAgent):
             sources = db.execute(select(Source).where(Source.is_active == True)).scalars().all()  # noqa: E712
             created = 0
             for source in sources:
-                title = f"{source.name} AI update {datetime.now(timezone.utc).strftime('%H:%M')}"
-                url_hash = hashlib.sha1(f"{source.domain}-{title}".encode("utf-8")).hexdigest()[:10]
-                url = f"https://{source.domain}/news/{url_hash}"
-                raw = RawArticle(source_id=source.id, raw_url=url, payload_json={"title": title, "content": title})
-                db.add(raw)
-                created += 1
+                entries = fetch_feed_entries(source, limit=15)
+                if not entries:
+                    entries = [build_synthetic_entry(source)]
+
+                for entry in entries:
+                    exists = db.execute(
+                        select(RawArticle).where(RawArticle.raw_url == entry["url"]).limit(1)
+                    ).scalar_one_or_none()
+                    if exists:
+                        continue
+                    raw = RawArticle(
+                        source_id=source.id,
+                        raw_url=entry["url"],
+                        payload_json={
+                            "title": entry["title"],
+                            "content": entry["content"],
+                            "published_at": entry["published_at"],
+                            "fingerprint": entry["fingerprint"],
+                            "feed_url": entry["feed_url"],
+                        },
+                    )
+                    db.add(raw)
+                    created += 1
             db.commit()
             result = AgentResult(processed=len(sources), created=created)
             self._finish_run(db, run, result)
@@ -102,13 +120,20 @@ class NormalizationAgent(BaseAgent):
                 if exists:
                     continue
                 content = raw.payload_json.get("content", "")
+                published_at_raw = raw.payload_json.get("published_at")
+                published_at = datetime.now(timezone.utc)
+                if isinstance(published_at_raw, str):
+                    try:
+                        published_at = datetime.fromisoformat(published_at_raw.replace("Z", "+00:00"))
+                    except ValueError:
+                        published_at = datetime.now(timezone.utc)
                 article = Article(
                     source_id=raw.source_id,
                     canonical_url=raw.raw_url,
                     title=raw.payload_json.get("title", "Untitled"),
                     content_text=content,
                     snippet=content[:200],
-                    published_at=datetime.now(timezone.utc),
+                    published_at=published_at,
                     content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
                     language="en",
                 )
