@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +9,12 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+pysqlite:///./ai_news.db"
     api_prefix: str = "/v1"
     internal_api_key: str = "dev-internal-key"
+    openai_api_key: Optional[str] = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    embedding_model: str = "text-embedding-3-small"
+    summary_model: str = "gpt-4o-mini"
+    openai_timeout_seconds: int = 30
+    openai_embedding_dimensions: Optional[int] = None
 
     publish_interval_minutes: int = 10
     crawl_interval_minutes: int = 5

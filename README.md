@@ -46,5 +46,5 @@ Fastest route:
 After that, Render gives you the frontend public URL.
 
 ## Notes
-- Embeddings/summaries currently use deterministic local stubs for predictable MVP behavior.
-- Replace `app/services/model_gateway.py` with provider-backed implementations for production.
+- `app/services/model_gateway.py` now supports OpenAI-backed embeddings + summaries when `OPENAI_API_KEY` is set.
+- If OpenAI is unavailable, the gateway automatically falls back to deterministic local behavior.
