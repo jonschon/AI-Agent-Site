@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: ai-news-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /v1/healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+
+  - type: web
+    name: ai-news-frontend
+    runtime: node
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE
+        sync: false

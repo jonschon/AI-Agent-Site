@@ -31,6 +31,20 @@ Techmeme-inspired, agent-run AI ecosystem news platform.
 - Internal APIs for agent runs and exception handling
 - Next.js UI with desktop two-column and mobile single-column behavior
 
+## Deploy from GitHub
+Use `DEPLOYMENT.md`.
+
+Fastest route:
+1. Open Render and create a Blueprint from this repo.
+2. It will use `render.yaml` to create backend + frontend services.
+3. Set env vars:
+   - Backend: `DATABASE_URL`, `INTERNAL_API_KEY`
+   - Frontend: `NEXT_PUBLIC_API_BASE` = `https://<backend-domain>/v1`
+4. Trigger first publish cycle:
+   - `POST /v1/internal/agents/run/all` with `x-internal-api-key`.
+
+After that, Render gives you the frontend public URL.
+
 ## Notes
 - Embeddings/summaries currently use deterministic local stubs for predictable MVP behavior.
 - Replace `app/services/model_gateway.py` with provider-backed implementations for production.
