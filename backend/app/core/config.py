@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     publish_interval_minutes: int = 10
     crawl_interval_minutes: int = 5
+    clustering_window_hours: int = 72
+    clustering_min_confidence: float = 0.58
+    clustering_exception_floor: float = 0.45
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

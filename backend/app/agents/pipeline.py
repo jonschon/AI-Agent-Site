@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from slugify import slugify
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.news import (
     AgentRun,
     Article,
@@ -25,6 +26,13 @@ from app.models.news import (
     StoryTag,
     StoryTier,
     Tag,
+)
+from app.services.cluster import (
+    cluster_confidence,
+    cosine_similarity,
+    lexical_overlap,
+    overlap_ratio,
+    tokenize,
 )
 from app.services.crawler import build_synthetic_entry, fetch_feed_entries
 from app.services.model_gateway import generate_embedding, infer_tags, summarize_story
@@ -183,6 +191,65 @@ class EmbeddingAgent(BaseAgent):
 class ClusteringAgent(BaseAgent):
     name = "clustering"
 
+    def _story_embedding(self, db: Session, story_id: int) -> list[float]:
+        embeddings = db.execute(
+            select(ArticleEmbedding.embedding)
+            .join(StoryArticle, StoryArticle.article_id == ArticleEmbedding.article_id)
+            .where(StoryArticle.story_id == story_id)
+            .order_by(desc(StoryArticle.added_at))
+            .limit(4)
+        ).scalars().all()
+        if not embeddings:
+            return []
+
+        size = len(embeddings[0])
+        sums = [0.0] * size
+        valid_count = 0
+        for embedding in embeddings:
+            if not isinstance(embedding, list) or len(embedding) != size:
+                continue
+            for idx, value in enumerate(embedding):
+                sums[idx] += float(value)
+            valid_count += 1
+        if valid_count == 0:
+            return []
+        return [value / valid_count for value in sums]
+
+    def _find_candidate_story(
+        self, db: Session, article: Article, article_embedding: list[float]
+    ) -> tuple[Story | None, float]:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.clustering_window_hours)
+        candidates = db.execute(
+            select(Story)
+            .where(Story.status == StoryStatus.active, Story.last_updated_at >= cutoff)
+            .order_by(desc(Story.last_updated_at))
+            .limit(60)
+        ).scalars().all()
+
+        article_tokens = tokenize(article.title or "")
+        article_entities = [token for token in (article.title or "").split() if token[:1].isupper()]
+        best_story: Story | None = None
+        best_confidence = 0.0
+
+        for story in candidates:
+            story_vector = self._story_embedding(db, story.id)
+            semantic = cosine_similarity(article_embedding, story_vector) if story_vector else 0.0
+
+            story_tokens = tokenize(story.headline or "")
+            lexical = lexical_overlap(article_tokens, story_tokens)
+
+            story_entities = [token for token in (story.headline or "").split() if token[:1].isupper()]
+            entity_score = overlap_ratio(article_entities, story_entities)
+
+            confidence = cluster_confidence(semantic=semantic, lexical=lexical, entity_overlap=entity_score)
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_story = story
+
+        if best_confidence < settings.clustering_min_confidence:
+            return None, best_confidence
+        return best_story, best_confidence
+
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
@@ -196,10 +263,21 @@ class ClusteringAgent(BaseAgent):
                 if linked:
                     continue
 
-                token = article.title.split()[0].lower() if article.title else "ai"
-                story = db.execute(
-                    select(Story).where(Story.headline.ilike(f"%{token}%")).order_by(desc(Story.last_updated_at)).limit(1)
+                embedding_row = db.execute(
+                    select(ArticleEmbedding).where(ArticleEmbedding.article_id == article.id)
                 ).scalar_one_or_none()
+                article_embedding = embedding_row.embedding if embedding_row else generate_embedding(article.title)
+                if not embedding_row:
+                    db.add(
+                        ArticleEmbedding(
+                            article_id=article.id,
+                            embedding=article_embedding,
+                            model_name="on-demand-clustering",
+                        )
+                    )
+                    db.flush()
+
+                story, confidence = self._find_candidate_story(db, article, article_embedding)
 
                 if not story:
                     headline, bullets = summarize_story(article.title, [article.snippet or article.content_text])
@@ -212,6 +290,7 @@ class ClusteringAgent(BaseAgent):
                     db.add(story)
                     db.flush()
                     created += 1
+                    confidence = 1.0
                 else:
                     updated += 1
 
@@ -219,11 +298,23 @@ class ClusteringAgent(BaseAgent):
                     StoryArticle(
                         story_id=story.id,
                         article_id=article.id,
-                        cluster_confidence=0.72,
+                        cluster_confidence=confidence,
                         is_primary=False,
                     )
                 )
                 story.last_updated_at = datetime.now(timezone.utc)
+
+                if confidence < settings.clustering_exception_floor:
+                    db.add(
+                        ExceptionItem(
+                            agent_name=self.name,
+                            object_type="article",
+                            object_id=str(article.id),
+                            reason="Low-confidence cluster assignment",
+                            severity="medium",
+                            payload_json={"confidence": confidence, "story_id": story.id},
+                        )
+                    )
             db.commit()
 
             result = AgentResult(processed=len(articles), created=created, updated=updated)
