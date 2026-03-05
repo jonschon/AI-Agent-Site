@@ -10,8 +10,9 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.news import ExceptionItem, ExceptionStatus
 from app.schemas.internal import ResolveExceptionRequest
-from app.schemas.news import AgentRunOut, ExceptionOut
+from app.schemas.news import AgentRunOut, ExceptionOut, OpsPolicyEvaluation, OpsQualityMetrics
 from app.services.feed_service import get_agent_runs, get_exceptions
+from app.services.ops_service import collect_ops_quality_metrics, evaluate_ops_policy
 
 router = APIRouter(prefix="/internal")
 
@@ -61,3 +62,34 @@ def resolve_exception(
     db.add(exc)
     db.commit()
     return {"status": "resolved", "id": exception_id}
+
+
+@router.get("/ops/quality", response_model=OpsQualityMetrics)
+def read_ops_quality(
+    db: Session = Depends(get_db),
+    _: None = Depends(_check_internal_auth),
+) -> OpsQualityMetrics:
+    return collect_ops_quality_metrics(db)
+
+
+@router.get("/ops/policy-eval", response_model=OpsPolicyEvaluation)
+def read_ops_policy_eval(
+    db: Session = Depends(get_db),
+    _: None = Depends(_check_internal_auth),
+) -> OpsPolicyEvaluation:
+    return evaluate_ops_policy(db)
+
+
+@router.post("/ops/autonomous-cycle")
+def run_autonomous_cycle(
+    db: Session = Depends(get_db),
+    _: None = Depends(_check_internal_auth),
+) -> dict:
+    results = run_pipeline(db)
+    policy = evaluate_ops_policy(db)
+    return {
+        "pipeline_results": results,
+        "policy_status": policy.status,
+        "blocking_reasons": policy.blocking_reasons,
+        "generated_at": policy.metrics.generated_at.isoformat(),
+    }

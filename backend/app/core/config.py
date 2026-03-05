@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     ranking_weight_discussion: float = 0.12
     ranking_weight_entity: float = 0.08
     ranking_lead_min_source_diversity: int = 2
+    ops_max_publish_staleness_minutes: int = 20
+    ops_max_open_high_exceptions: int = 10
+    ops_min_bullet_compliance: float = 0.95
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

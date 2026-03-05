@@ -82,3 +82,23 @@ class ExceptionOut(BaseModel):
     status: str
     created_at: datetime
     resolved_at: Optional[datetime]
+
+
+class OpsQualityMetrics(BaseModel):
+    generated_at: datetime
+    publish_staleness_minutes: Optional[float]
+    open_exceptions_total: int
+    open_exceptions_high: int
+    bullet_compliance_rate: float
+    cluster_confidence_avg: float
+    cluster_confidence_low_count: int
+    merged_story_count_24h: int
+    failed_agent_runs_24h: int
+    active_story_count: int
+    agent_last_run: dict
+
+
+class OpsPolicyEvaluation(BaseModel):
+    status: str
+    blocking_reasons: list[str]
+    metrics: OpsQualityMetrics
