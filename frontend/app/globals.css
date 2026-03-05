@@ -1,0 +1,184 @@
+:root {
+  --bg: #f6f4ee;
+  --text: #151515;
+  --muted: #5f5b53;
+  --card: #fffdf8;
+  --line: #d8d0c2;
+  --accent: #9a2f1f;
+  --chip: #ece6da;
+  --rail: #f0ebe0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top right, #fbe7cf 0%, transparent 40%),
+    radial-gradient(circle at bottom left, #e8efe0 0%, transparent 35%),
+    var(--bg);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.header {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.brand-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+}
+
+.nav {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.nav a {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 1rem;
+}
+
+.feed-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.feed-card.lead {
+  border-width: 2px;
+  border-color: #bc8f5b;
+}
+
+.badges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.45rem;
+}
+
+.badge {
+  font-size: 0.72rem;
+  background: #ffe6cf;
+  color: #6b260f;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+}
+
+.headline {
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+  line-height: 1.25;
+}
+
+.bullets {
+  margin: 0.2rem 0 0.65rem;
+  padding-left: 1.1rem;
+}
+
+.meta-line {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 0.3rem;
+}
+
+.meta-list {
+  display: inline-flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.tag {
+  padding: 0.18rem 0.4rem;
+  border-radius: 999px;
+  background: var(--chip);
+}
+
+.rail {
+  position: sticky;
+  top: 0.8rem;
+  height: fit-content;
+  background: var(--rail);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.widget {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.widget h4 {
+  margin: 0 0 0.35rem;
+}
+
+.filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.65rem;
+}
+
+.filters a {
+  font-size: 0.82rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.quick-item {
+  border-bottom: 1px dashed var(--line);
+  padding: 0.5rem 0;
+}
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    position: static;
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+}
