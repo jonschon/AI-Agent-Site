@@ -13,11 +13,40 @@ type RankingTable = {
   rows: RankingRow[];
 };
 
+type RankingConfig = {
+  topic: string;
+  metric: string;
+  signalType?: string;
+};
+
+const RANKING_CONFIGS: RankingConfig[] = [
+  {
+    topic: "Infrastructure Leaders",
+    metric: "Available AI compute capacity",
+    signalType: "trending_repos",
+  },
+  {
+    topic: "Model Builders",
+    metric: "Implied valuation (post-money)",
+    signalType: "funding_tracker",
+  },
+  {
+    topic: "Foundation Models",
+    metric: "Task win rate",
+    signalType: "model_activity",
+  },
+  {
+    topic: "Applications",
+    metric: "Weekly active users",
+    signalType: "research_papers",
+  },
+];
+
 function buildValuationRows(seed: number): RankingRow[] {
   return Array.from({ length: 5 }, (_, index) => ({
     rank: index + 1,
-    label: `Funding cohort ${index + 1}`,
-    score: `${Math.max(120 - index * 11 + seed, 72)}`,
+    label: `AI lab cohort ${index + 1}`,
+    score: `$${Math.max(220 - index * 20 + seed, 70)}B`,
   }));
 }
 
@@ -37,7 +66,7 @@ function numberFromSignal(value: unknown): number | null {
   return null;
 }
 
-function toRankingRows(signal: SignalWidget, fallbackCount: number): RankingRow[] {
+function toRankingRows(signal: SignalWidget, fallbackCount: number, scoreSuffix?: string): RankingRow[] {
   const entries = Object.entries(signal.data)
     .filter(([, value]) => typeof value === "number" || typeof value === "string")
     .map(([key, value]) => {
@@ -45,7 +74,6 @@ function toRankingRows(signal: SignalWidget, fallbackCount: number): RankingRow[
       return {
         label: key.replace(/_/g, " "),
         numeric,
-        raw: String(value),
       };
     })
     .filter((entry) => entry.numeric !== null);
@@ -57,7 +85,7 @@ function toRankingRows(signal: SignalWidget, fallbackCount: number): RankingRow[
       .map((entry, index) => ({
         rank: index + 1,
         label: entry.label,
-        score: String(entry.numeric),
+        score: `${String(entry.numeric)}${scoreSuffix ?? ""}`,
       }));
   }
 
@@ -65,70 +93,55 @@ function toRankingRows(signal: SignalWidget, fallbackCount: number): RankingRow[
   return Array.from({ length: Math.min(5, Math.max(3, itemCount)) }, (_, index) => ({
     rank: index + 1,
     label: `${signal.title} contender ${index + 1}`,
-    score: `${Math.max(100 - index * 7, 68)}`,
+    score: `${Math.max(100 - index * 7, 68)}${scoreSuffix ?? ""}`,
   }));
 }
 
 function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTable[] {
-  const signalTables = signals.slice(0, 3).map((signal) => ({
-    topic: signal.title,
-    metric: "Composite signal score",
-    updatedAt: signal.observed_at,
-    rows: toRankingRows(signal, stats.stories_detected),
-  }));
+  const byType = new Map(signals.map((signal) => [signal.type, signal]));
+  const updatedAt = stats.last_update_time ?? undefined;
+  const seed = Math.floor(stats.articles_processed / 4);
 
-  const valuationTable: RankingTable = {
-    topic: "Valuation Watch",
-    metric: "Funding announcement score",
-    updatedAt: stats.last_update_time ?? undefined,
-    rows: buildValuationRows(Math.floor(stats.articles_processed / 4)),
-  };
+  return RANKING_CONFIGS.map((config, tableIndex) => {
+    const signal = config.signalType ? byType.get(config.signalType) : undefined;
 
-  if (signalTables.length > 0) {
-    return [...signalTables, valuationTable].slice(0, 4);
-  }
+    if (config.topic === "Model Builders") {
+      return {
+        topic: config.topic,
+        metric: config.metric,
+        updatedAt: signal?.observed_at ?? updatedAt,
+        rows: buildValuationRows(seed),
+      };
+    }
 
-  const fallbackRows = [
-    { label: "Model quality index", score: `${Math.max(60, stats.stories_detected + 55)}` },
-    { label: "Launch velocity index", score: `${Math.max(58, stats.articles_processed + 35)}` },
-    { label: "Research momentum index", score: `${Math.max(56, stats.stories_detected + 42)}` },
-    { label: "Adoption signal index", score: `${Math.max(54, stats.articles_processed + 28)}` },
-    { label: "Ecosystem reliability index", score: `${Math.max(52, stats.stories_detected + 30)}` },
-  ];
+    if (signal) {
+      const suffix = config.topic === "Foundation Models" ? "%" : "";
+      return {
+        topic: config.topic,
+        metric: config.metric,
+        updatedAt: signal.observed_at,
+        rows: toRankingRows(signal, stats.stories_detected, suffix),
+      };
+    }
 
-  return [
-    {
-      topic: "Best Model",
-      metric: "Agent trend score",
-      updatedAt: stats.last_update_time ?? undefined,
-      rows: fallbackRows.map((row, index) => ({
+    const fallbackPrefix =
+      config.topic === "Infrastructure Leaders"
+        ? "Provider"
+        : config.topic === "Foundation Models"
+          ? "Model"
+          : "App";
+    const scoreSuffix = config.topic === "Foundation Models" ? "%" : "";
+    return {
+      topic: config.topic,
+      metric: config.metric,
+      updatedAt,
+      rows: Array.from({ length: 5 }, (_, index) => ({
         rank: index + 1,
-        label: row.label,
-        score: row.score,
+        label: `${fallbackPrefix} ${index + 1}`,
+        score: `${Math.max(96 - index * 6 - tableIndex * 2, 58)}${scoreSuffix}`,
       })),
-    },
-    {
-      topic: "Agent Platforms",
-      metric: "Execution reliability",
-      updatedAt: stats.last_update_time ?? undefined,
-      rows: fallbackRows.map((row, index) => ({
-        rank: index + 1,
-        label: row.label.replace("index", "stack"),
-        score: `${Math.max(50, Number(row.score) - 3)}`,
-      })),
-    },
-    {
-      topic: "Research Labs",
-      metric: "Breakthrough signal",
-      updatedAt: stats.last_update_time ?? undefined,
-      rows: fallbackRows.map((row, index) => ({
-        rank: index + 1,
-        label: row.label.replace("index", "program"),
-        score: `${Math.max(48, Number(row.score) - 5)}`,
-      })),
-    },
-    valuationTable,
-  ];
+    };
+  });
 }
 
 export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats: NewsroomStats }) {
@@ -151,7 +164,7 @@ export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats
             <thead>
               <tr>
                 <th>Rank</th>
-                <th>Signal</th>
+                <th>Entity</th>
                 <th>Score</th>
               </tr>
             </thead>
