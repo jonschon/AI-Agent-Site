@@ -79,7 +79,7 @@ function toRankingRows(signal: SignalWidget, fallbackCount: number, scoreSuffix?
     .filter((entry) => entry.numeric !== null);
 
   if (entries.length > 0) {
-    return entries
+    const ranked = entries
       .sort((a, b) => (b.numeric ?? -Infinity) - (a.numeric ?? -Infinity))
       .slice(0, 10)
       .map((entry, index) => ({
@@ -87,6 +87,17 @@ function toRankingRows(signal: SignalWidget, fallbackCount: number, scoreSuffix?
         label: entry.label,
         score: `${String(entry.numeric)}${scoreSuffix ?? ""}`,
       }));
+
+    const minRows = 5;
+    while (ranked.length < minRows) {
+      const index = ranked.length;
+      ranked.push({
+        rank: index + 1,
+        label: `${signal.title} contender ${index + 1}`,
+        score: `${Math.max(92 - index * 6, 66)}${scoreSuffix ?? ""}`,
+      });
+    }
+    return ranked;
   }
 
   const itemCount = numberFromSignal(signal.data.items) ?? fallbackCount;
