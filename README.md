@@ -2,6 +2,12 @@
 
 Techmeme-inspired, agent-run AI ecosystem news platform.
 
+MVP scope is intentionally locked to:
+- crawl -> normalize -> cluster -> summarize -> rank -> publish
+- homepage feed + story/category/search views
+- internal operational endpoints for runs/exceptions/basic policy health
+- no additional platform modules until post-MVP stabilization
+
 ## Stack
 - Frontend: Next.js (`frontend/`)
 - Backend: FastAPI + SQLAlchemy (`backend/`)
