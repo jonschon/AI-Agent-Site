@@ -32,6 +32,14 @@ MVP scope is intentionally locked to:
    - `npm install`
    - `NEXT_PUBLIC_API_BASE=http://localhost:8000/v1 npm run dev`
 
+## MVP Smoke Check
+- Run a full local MVP verification with:
+  - `make smoke`
+- This command will:
+  - boot backend
+  - run full internal agent pipeline once
+  - verify `/v1/feed`, `/v1/signals`, and `/v1/stats/newsroom`
+
 ## Implemented MVP Scope
 - Agent pipeline (crawler, normalization, embedding, clustering, summarization+tagging, ranking, publishing, QA)
 - Feed-driven crawler with per-source RSS config and URL canonicalization
