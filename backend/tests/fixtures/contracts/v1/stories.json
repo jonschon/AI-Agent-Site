@@ -23,5 +23,6 @@
     "platform",
     "url"
   ],
-  "bullets_length": 3
+  "bullets_min_length": 1,
+  "bullets_max_length": 3
 }

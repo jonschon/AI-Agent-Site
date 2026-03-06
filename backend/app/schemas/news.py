@@ -18,7 +18,7 @@ class StoryCard(BaseModel):
     id: int
     slug: str
     headline: str
-    bullets: list[str] = Field(min_length=3, max_length=3)
+    bullets: list[str] = Field(min_length=1, max_length=3)
     tags: list[str]
     sources: list[SourceLink]
     discussions: list[DiscussionLinkOut]

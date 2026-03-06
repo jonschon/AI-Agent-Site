@@ -34,7 +34,7 @@ def collect_ops_quality_metrics(db: Session) -> OpsQualityMetrics:
     ).scalar_one()
 
     active_stories = db.execute(select(Story).where(Story.status == StoryStatus.active)).scalars().all()
-    bullet_ok = sum(1 for story in active_stories if len(story.bullets_json or []) == 3)
+    bullet_ok = sum(1 for story in active_stories if 1 <= len(story.bullets_json or []) <= 3)
     bullet_compliance = (bullet_ok / len(active_stories)) if active_stories else 1.0
 
     cluster_avg = db.execute(select(func.avg(StoryArticle.cluster_confidence))).scalar_one_or_none()

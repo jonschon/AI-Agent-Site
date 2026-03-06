@@ -82,7 +82,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         id=story.id,
         slug=story.slug,
         headline=story.headline,
-        bullets=(story.bullets_json or ["", "", ""])[:3],
+        bullets=(story.bullets_json or ["Coverage is evolving as additional sources publish."])[:3],
         tags=tags_rows,
         sources=sources,
         discussions=[DiscussionLinkOut(platform=d.platform, url=d.url) for d in discussions],

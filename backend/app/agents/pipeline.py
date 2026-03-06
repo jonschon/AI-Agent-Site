@@ -51,6 +51,18 @@ class AgentResult:
     updated: int = 0
 
 
+def target_bullet_count(tier: StoryTier | str, importance_score: float) -> int:
+    tier_value = tier.value if isinstance(tier, StoryTier) else str(tier)
+    if importance_score >= 0.7:
+        return 3
+    if importance_score >= 0.55:
+        return 2
+    # Lead stories should not collapse to a single bullet even if upstream scores are noisy.
+    if tier_value == StoryTier.lead.value:
+        return 2
+    return 1
+
+
 class BaseAgent:
     name = "base"
 
@@ -611,7 +623,8 @@ class SummarizationTaggingAgent(BaseAgent):
                 ).scalars().all()
                 snippets = [a.snippet or a.content_text for a in articles]
                 headline_seed = articles[0].title if articles else story.headline
-                headline, bullets = summarize_story(headline_seed, snippets)
+                bullet_count = target_bullet_count(story.tier, story.importance_score)
+                headline, bullets = summarize_story(headline_seed, snippets, max_bullets=bullet_count)
                 story.headline = headline
                 story.bullets_json = bullets
 
@@ -815,15 +828,16 @@ class MonitoringQaAgent(BaseAgent):
             created = 0
             for story in stories:
                 bullets = story.bullets_json or []
-                if len(bullets) != 3:
+                expected_max = target_bullet_count(story.tier, story.importance_score)
+                if not (1 <= len(bullets) <= expected_max):
                     db.add(
                         ExceptionItem(
                             agent_name=self.name,
                             object_type="story",
                             object_id=str(story.id),
-                            reason="Story must have exactly 3 bullets",
+                            reason="Story bullet count outside expected range",
                             severity="high",
-                            payload_json={"bullets": bullets},
+                            payload_json={"bullets": bullets, "expected_max": expected_max},
                         )
                     )
                     created += 1

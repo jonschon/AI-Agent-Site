@@ -44,7 +44,7 @@ def _assert_story_shape(story: dict) -> None:
     assert isinstance(story["slug"], str)
     assert isinstance(story["headline"], str)
     assert isinstance(story["bullets"], list)
-    assert len(story["bullets"]) == 3
+    assert 1 <= len(story["bullets"]) <= 3
     assert all(isinstance(item, str) for item in story["bullets"])
     assert isinstance(story["tags"], list)
     assert isinstance(story["sources"], list)
@@ -97,7 +97,8 @@ def _stories_snapshot(payload: list[dict]) -> dict:
         "required_story_keys": sorted(EXPECTED_STORY_KEYS),
         "required_source_keys": sorted(EXPECTED_SOURCE_KEYS),
         "required_discussion_keys": sorted(EXPECTED_DISCUSSION_KEYS),
-        "bullets_length": 3,
+        "bullets_min_length": 1,
+        "bullets_max_length": 3,
     }
 
 
@@ -111,7 +112,8 @@ def _sections_snapshot(payload: dict) -> dict:
         "required_story_keys": sorted(EXPECTED_STORY_KEYS),
         "required_source_keys": sorted(EXPECTED_SOURCE_KEYS),
         "required_discussion_keys": sorted(EXPECTED_DISCUSSION_KEYS),
-        "bullets_length": 3,
+        "bullets_min_length": 1,
+        "bullets_max_length": 3,
     }
 
 

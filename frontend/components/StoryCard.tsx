@@ -9,7 +9,6 @@ type Props = {
 
 export function StoryCard({ story, variant }: Props) {
   const bullets = [...story.bullets].slice(0, 3);
-  while (bullets.length < 3) bullets.push("Coverage is still developing.");
 
   return (
     <article className={`feed-card ${variant === "lead" ? "lead" : ""}`}>

@@ -17,15 +17,16 @@ def _deterministic_embedding(text: str, dimensions: int = 16) -> list[float]:
     return [int(digest[i]) / 255 for i in range(dimensions)]
 
 
-def _fallback_summary(headline_seed: str, snippets: list[str]) -> tuple[str, list[str]]:
+def _fallback_summary(headline_seed: str, snippets: list[str], max_bullets: int = 3) -> tuple[str, list[str]]:
+    max_bullets = max(1, min(max_bullets, 3))
     headline = headline_seed.strip()[:120]
     bullets = []
-    for snippet in snippets[:3]:
+    for snippet in snippets[:max_bullets]:
         cleaned = " ".join(snippet.split())[:140]
         bullets.append(cleaned if cleaned else "Update available from monitored sources.")
-    while len(bullets) < 3:
+    while len(bullets) < 1:
         bullets.append("Coverage is evolving as additional sources publish.")
-    return headline, bullets[:3]
+    return headline, bullets[:max_bullets]
 
 
 def _extract_output_text(payload: dict) -> str:
@@ -83,8 +84,9 @@ def generate_embedding(text: str, dimensions: int = 16) -> list[float]:
     return _deterministic_embedding(text, dimensions=dimensions)
 
 
-def summarize_story(headline_seed: str, snippets: list[str]) -> tuple[str, list[str]]:
-    fallback_headline, fallback_bullets = _fallback_summary(headline_seed, snippets)
+def summarize_story(headline_seed: str, snippets: list[str], max_bullets: int = 3) -> tuple[str, list[str]]:
+    max_bullets = max(1, min(max_bullets, 3))
+    fallback_headline, fallback_bullets = _fallback_summary(headline_seed, snippets, max_bullets=max_bullets)
     if not settings.openai_api_key:
         return fallback_headline, fallback_bullets
 
@@ -93,7 +95,7 @@ def summarize_story(headline_seed: str, snippets: list[str]) -> tuple[str, list[
         "Return JSON with keys: headline, bullets.\n"
         "Requirements:\n"
         "- headline: concise, factual, <= 120 chars\n"
-        "- bullets: array of exactly 3 concise bullets, each <= 140 chars\n"
+        f"- bullets: array of 1 to {max_bullets} concise bullets, each <= 140 chars\n"
         "- avoid speculation and marketing language\n\n"
         f"Headline seed: {headline_seed}\n"
         "Snippets:\n"
@@ -121,8 +123,8 @@ def summarize_story(headline_seed: str, snippets: list[str]) -> tuple[str, list[
                         "bullets": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "minItems": 3,
-                            "maxItems": 3,
+                            "minItems": 1,
+                            "maxItems": max_bullets,
                         },
                     },
                     "required": ["headline", "bullets"],
@@ -140,9 +142,9 @@ def summarize_story(headline_seed: str, snippets: list[str]) -> tuple[str, list[
         headline = str(parsed.get("headline", "")).strip()[:120] or fallback_headline
         raw_bullets = parsed.get("bullets") or []
         bullets = [str(item).strip()[:140] for item in raw_bullets if str(item).strip()]
-        while len(bullets) < 3:
-            bullets.append(fallback_bullets[len(bullets)])
-        return headline, bullets[:3]
+        if not bullets:
+            bullets = fallback_bullets
+        return headline, bullets[:max_bullets]
     except Exception as exc:  # noqa: BLE001
         logger.warning("Summary request failed, falling back to local summary: %s", exc)
         return fallback_headline, fallback_bullets
