@@ -8,6 +8,7 @@ MVP scope is intentionally locked to:
 - internal operational endpoints for runs/exceptions/basic policy health
 - no additional platform modules until post-MVP stabilization
 - frontend includes resilient loading/empty/error states so feed remains usable during backend/API issues
+- core public API contracts are covered by payload-shape tests to prevent breaking frontend changes
 
 ## Stack
 - Frontend: Next.js (`frontend/`)

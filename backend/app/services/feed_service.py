@@ -38,6 +38,12 @@ from app.schemas.news import (
 from app.services.scoring import badges_for_story, is_new_story
 
 
+def _to_aware_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _story_card(db: Session, story: Story) -> StoryCard:
     source_rows = db.execute(
         select(Source.name, Article.canonical_url)
@@ -64,7 +70,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
 
     now = datetime.now(timezone.utc)
     new_sources = max(len(sources) - 1, 0)
-    updated_recently = (now - story.last_updated_at).total_seconds() < 3600
+    updated_recently = (now - _to_aware_utc(story.last_updated_at)).total_seconds() < 3600
     badges = badges_for_story(
         is_new=is_new_story(story.first_seen_at, now),
         momentum_score=story.momentum_score,
@@ -84,7 +90,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         momentum_score=story.momentum_score,
         tier=story.tier.value,
         badges=badges,
-        updated_at=story.last_updated_at,
+        updated_at=_to_aware_utc(story.last_updated_at),
     )
 
 
