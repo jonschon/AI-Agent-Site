@@ -1,0 +1,27 @@
+{
+  "endpoint": "/v1/stories",
+  "response_type": "list",
+  "required_story_keys": [
+    "badges",
+    "bullets",
+    "discussions",
+    "headline",
+    "id",
+    "importance_score",
+    "momentum_score",
+    "slug",
+    "sources",
+    "tags",
+    "tier",
+    "updated_at"
+  ],
+  "required_source_keys": [
+    "source_name",
+    "url"
+  ],
+  "required_discussion_keys": [
+    "platform",
+    "url"
+  ],
+  "bullets_length": 3
+}

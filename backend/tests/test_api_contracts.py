@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -31,6 +33,9 @@ EXPECTED_SOURCE_KEYS = {"source_name", "url"}
 EXPECTED_DISCUSSION_KEYS = {"platform", "url"}
 EXPECTED_SIGNAL_KEYS = {"type", "title", "data", "observed_at"}
 EXPECTED_NEWSROOM_KEYS = {"articles_processed", "stories_detected", "last_update_time"}
+EXPECTED_SECTION_KEYS = {"name", "stories"}
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "contracts" / "v1"
 
 
 def _assert_story_shape(story: dict) -> None:
@@ -79,6 +84,35 @@ def _prime_pipeline(monkeypatch) -> None:
         headers={"x-internal-api-key": settings.internal_api_key},
     )
     assert response.status_code == 200
+
+
+def _load_snapshot(name: str) -> dict:
+    return json.loads((FIXTURES_DIR / name).read_text())
+
+
+def _stories_snapshot(payload: list[dict]) -> dict:
+    return {
+        "endpoint": "/v1/stories",
+        "response_type": "list",
+        "required_story_keys": sorted(EXPECTED_STORY_KEYS),
+        "required_source_keys": sorted(EXPECTED_SOURCE_KEYS),
+        "required_discussion_keys": sorted(EXPECTED_DISCUSSION_KEYS),
+        "bullets_length": 3,
+    }
+
+
+def _sections_snapshot(payload: dict) -> dict:
+    del payload
+    return {
+        "endpoint": "/v1/feed/sections",
+        "response_type": "object",
+        "required_root_keys": ["sections"],
+        "required_section_keys": sorted(EXPECTED_SECTION_KEYS),
+        "required_story_keys": sorted(EXPECTED_STORY_KEYS),
+        "required_source_keys": sorted(EXPECTED_SOURCE_KEYS),
+        "required_discussion_keys": sorted(EXPECTED_DISCUSSION_KEYS),
+        "bullets_length": 3,
+    }
 
 
 def test_feed_contract(monkeypatch) -> None:
@@ -130,3 +164,40 @@ def test_newsroom_stats_contract(monkeypatch) -> None:
     assert isinstance(payload["stories_detected"], int)
     if payload["last_update_time"] is not None:
         datetime.fromisoformat(payload["last_update_time"].replace("Z", "+00:00"))
+
+
+def test_stories_contract_snapshot_v1(monkeypatch) -> None:
+    _prime_pipeline(monkeypatch)
+
+    response = client.get("/v1/stories")
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+
+    for story in payload:
+        _assert_story_shape(story)
+
+    expected = _load_snapshot("stories.json")
+    assert _stories_snapshot(payload) == expected
+
+
+def test_feed_sections_contract_snapshot_v1(monkeypatch) -> None:
+    _prime_pipeline(monkeypatch)
+
+    response = client.get("/v1/feed/sections")
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == {"sections"}
+    assert isinstance(payload["sections"], list)
+
+    for section in payload["sections"]:
+        assert set(section.keys()) == EXPECTED_SECTION_KEYS
+        assert isinstance(section["name"], str)
+        assert isinstance(section["stories"], list)
+        for story in section["stories"]:
+            _assert_story_shape(story)
+
+    expected = _load_snapshot("feed_sections.json")
+    assert _sections_snapshot(payload) == expected

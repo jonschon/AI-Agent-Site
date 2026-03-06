@@ -1,0 +1,34 @@
+{
+  "endpoint": "/v1/feed/sections",
+  "response_type": "object",
+  "required_root_keys": [
+    "sections"
+  ],
+  "required_section_keys": [
+    "name",
+    "stories"
+  ],
+  "required_story_keys": [
+    "badges",
+    "bullets",
+    "discussions",
+    "headline",
+    "id",
+    "importance_score",
+    "momentum_score",
+    "slug",
+    "sources",
+    "tags",
+    "tier",
+    "updated_at"
+  ],
+  "required_source_keys": [
+    "source_name",
+    "url"
+  ],
+  "required_discussion_keys": [
+    "platform",
+    "url"
+  ],
+  "bullets_length": 3
+}
