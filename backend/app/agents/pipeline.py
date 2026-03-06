@@ -21,6 +21,7 @@ from app.models.news import (
     RunStatus,
     Signal,
     Source,
+    SourceState,
     Story,
     StoryArticle,
     StoryStatus,
@@ -38,6 +39,7 @@ from app.services.cluster import (
 from app.services.crawler import build_synthetic_entry, fetch_feed_entries
 from app.services.model_gateway import generate_embedding, infer_tags, summarize_story
 from app.services.scoring import apply_retention_tier, momentum, score_story
+from app.services.self_heal_service import auto_resolve_stale_low_exceptions
 
 
 @dataclass
@@ -78,16 +80,92 @@ class BaseAgent:
 class CrawlerAgent(BaseAgent):
     name = "crawler"
 
+    def _source_in_cooldown(self, source: Source) -> bool:
+        config = dict(source.crawl_config_json or {})
+        cooldown_until_raw = config.get("cooldown_until")
+        if not isinstance(cooldown_until_raw, str):
+            return False
+        try:
+            cooldown_until = datetime.fromisoformat(cooldown_until_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if cooldown_until.tzinfo is None:
+            cooldown_until = cooldown_until.replace(tzinfo=timezone.utc)
+        return cooldown_until > datetime.now(timezone.utc)
+
+    def _update_poll_minutes(self, source: Source, used_fallback: bool, created_for_source: int) -> None:
+        config = dict(source.crawl_config_json or {})
+        poll = int(config.get("poll_minutes", settings.crawl_interval_minutes))
+        if used_fallback or created_for_source == 0:
+            poll = min(settings.self_heal_max_poll_minutes, poll + 2)
+        elif created_for_source >= 5:
+            poll = max(settings.self_heal_min_poll_minutes, poll - 1)
+        config["poll_minutes"] = poll
+        source.crawl_config_json = config
+
+    def _record_source_failure(self, db: Session, source: Source, reason: str) -> None:
+        now = datetime.now(timezone.utc)
+        config = dict(source.crawl_config_json or {})
+        failures = int(config.get("crawl_failures", 0)) + 1
+        config["crawl_failures"] = failures
+        config["last_failure_at"] = now.isoformat()
+
+        if failures >= settings.self_heal_max_source_failures:
+            config["cooldown_until"] = (
+                now + timedelta(minutes=settings.self_heal_source_cooldown_minutes)
+            ).isoformat()
+            source.state = SourceState.watchlist
+
+        source.crawl_config_json = config
+        db.add(
+            ExceptionItem(
+                agent_name=self.name,
+                object_type="source",
+                object_id=str(source.id),
+                reason=f"Crawler source failure: {reason}",
+                severity="high" if failures >= settings.self_heal_max_source_failures else "medium",
+                payload_json={
+                    "source_name": source.name,
+                    "domain": source.domain,
+                    "crawl_failures": failures,
+                    "cooldown_until": config.get("cooldown_until"),
+                },
+            )
+        )
+
+    def _record_source_success(self, source: Source) -> None:
+        config = dict(source.crawl_config_json or {})
+        config["crawl_failures"] = 0
+        config["last_success_at"] = datetime.now(timezone.utc).isoformat()
+        config.pop("cooldown_until", None)
+        source.crawl_config_json = config
+        if source.state == SourceState.watchlist:
+            source.state = SourceState.trusted
+
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
             sources = db.execute(select(Source).where(Source.is_active == True)).scalars().all()  # noqa: E712
             created = 0
+            updated = 0
             for source in sources:
-                entries = fetch_feed_entries(source, limit=15)
+                if self._source_in_cooldown(source):
+                    updated += 1
+                    continue
+
+                used_fallback = False
+                try:
+                    entries = fetch_feed_entries(source, limit=15)
+                except Exception as exc:  # noqa: BLE001
+                    self._record_source_failure(db, source, str(exc))
+                    updated += 1
+                    continue
+
                 if not entries:
                     entries = [build_synthetic_entry(source)]
+                    used_fallback = True
 
+                created_for_source = 0
                 for entry in entries:
                     exists = db.execute(
                         select(RawArticle).where(RawArticle.raw_url == entry["url"]).limit(1)
@@ -107,8 +185,13 @@ class CrawlerAgent(BaseAgent):
                     )
                     db.add(raw)
                     created += 1
+                    created_for_source += 1
+
+                self._record_source_success(source)
+                self._update_poll_minutes(source, used_fallback=used_fallback, created_for_source=created_for_source)
+                updated += 1
             db.commit()
-            result = AgentResult(processed=len(sources), created=created)
+            result = AgentResult(processed=len(sources), created=created, updated=updated)
             self._finish_run(db, run, result)
             return result
         except Exception as exc:
@@ -726,6 +809,21 @@ class MonitoringQaAgent(BaseAgent):
             raise
 
 
+class SelfHealAgent(BaseAgent):
+    name = "self_heal"
+
+    def run(self, db: Session) -> AgentResult:
+        run = self._start_run(db)
+        try:
+            resolved = auto_resolve_stale_low_exceptions(db)
+            result = AgentResult(processed=resolved, updated=resolved)
+            self._finish_run(db, run, result)
+            return result
+        except Exception as exc:
+            self._fail_run(db, run, exc)
+            raise
+
+
 PIPELINE = {
     "crawler": CrawlerAgent(),
     "normalization": NormalizationAgent(),
@@ -734,13 +832,24 @@ PIPELINE = {
     "merge_clusters": MergeClustersAgent(),
     "summarization_tagging": SummarizationTaggingAgent(),
     "ranking": RankingAgent(),
-    "publishing": PublishingAgent(),
     "monitoring_qa": MonitoringQaAgent(),
+    "self_heal": SelfHealAgent(),
+    "publishing": PublishingAgent(),
 }
 
 
-def run_pipeline(db: Session) -> dict[str, dict]:
+def run_pipeline_steps(db: Session, ordered: list[str]) -> dict[str, dict]:
     results: dict[str, dict] = {}
+
+    for name in ordered:
+        agent = PIPELINE[name]
+        result = agent.run(db)
+        results[name] = {"processed": result.processed, "created": result.created, "updated": result.updated}
+
+    return results
+
+
+def run_pipeline(db: Session) -> dict[str, dict]:
     ordered = [
         "crawler",
         "normalization",
@@ -749,16 +858,11 @@ def run_pipeline(db: Session) -> dict[str, dict]:
         "merge_clusters",
         "summarization_tagging",
         "ranking",
-        "publishing",
         "monitoring_qa",
+        "self_heal",
+        "publishing",
     ]
-
-    for name in ordered:
-        agent = PIPELINE[name]
-        result = agent.run(db)
-        results[name] = {"processed": result.processed, "created": result.created, "updated": result.updated}
-
-    return results
+    return run_pipeline_steps(db, ordered)
 
 
 def run_single_agent(db: Session, agent_name: str) -> dict:

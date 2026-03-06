@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     ops_max_publish_staleness_minutes: int = 20
     ops_max_open_high_exceptions: int = 10
     ops_min_bullet_compliance: float = 0.95
+    self_heal_exception_stale_minutes: int = 180
+    self_heal_max_source_failures: int = 3
+    self_heal_source_cooldown_minutes: int = 30
+    self_heal_min_poll_minutes: int = 5
+    self_heal_max_poll_minutes: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -100,6 +100,7 @@ def run_autonomous_cycle(
         "summarization_tagging",
         "ranking",
         "monitoring_qa",
+        "self_heal",
     ]
     results = run_pipeline_steps(db, prepublish_steps)
     prepublish_policy = evaluate_prepublish_policy(db)

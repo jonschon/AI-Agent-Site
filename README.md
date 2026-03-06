@@ -33,6 +33,7 @@ Techmeme-inspired, agent-run AI ecosystem news platform.
 - Internal agent-ops endpoints for autonomous quality metrics and policy evaluation
 - Autonomous policy-gated cycle that can hold publishing and raise escalation exceptions
 - Scheduler now defaults to autonomous policy-gated cycles for unattended operation
+- Self-healing automation: stale low-severity exception auto-resolution and source cooldown/backoff
 - Story lifecycle with balanced decay caps (lead/major/quick)
 - Public APIs (`/v1/feed`, `/v1/stories`, `/v1/signals`, `/v1/search`, stats, health)
 - Internal APIs for agent runs and exception handling
