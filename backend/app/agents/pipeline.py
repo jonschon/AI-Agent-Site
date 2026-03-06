@@ -36,7 +36,9 @@ from app.services.cluster import (
     overlap_ratio,
     tokenize,
 )
+from app.services.adaptive_policy_service import tune_agent_controls
 from app.services.crawler import build_synthetic_entry, fetch_feed_entries
+from app.services.memory_service import get_float_control, get_text_control, set_memory
 from app.services.model_gateway import generate_embedding, infer_tags, summarize_story
 from app.services.scoring import apply_retention_tier, momentum, score_story
 from app.services.self_heal_service import auto_resolve_stale_low_exceptions
@@ -93,14 +95,28 @@ class CrawlerAgent(BaseAgent):
             cooldown_until = cooldown_until.replace(tzinfo=timezone.utc)
         return cooldown_until > datetime.now(timezone.utc)
 
-    def _update_poll_minutes(self, source: Source, used_fallback: bool, created_for_source: int) -> None:
+    def _update_poll_minutes(
+        self, source: Source, used_fallback: bool, created_for_source: int, crawl_mode: str
+    ) -> None:
         config = dict(source.crawl_config_json or {})
         poll = int(config.get("poll_minutes", settings.crawl_interval_minutes))
-        if used_fallback or created_for_source == 0:
-            poll = min(settings.self_heal_max_poll_minutes, poll + 2)
-        elif created_for_source >= 5:
-            poll = max(settings.self_heal_min_poll_minutes, poll - 1)
+        if crawl_mode == "aggressive":
+            if used_fallback or created_for_source == 0:
+                poll = min(settings.self_heal_max_poll_minutes, poll + 1)
+            elif created_for_source >= 3:
+                poll = max(settings.self_heal_min_poll_minutes, poll - 2)
+        elif crawl_mode == "conservative":
+            if used_fallback or created_for_source == 0:
+                poll = min(settings.self_heal_max_poll_minutes, poll + 3)
+            elif created_for_source >= 8:
+                poll = max(settings.self_heal_min_poll_minutes, poll - 1)
+        else:
+            if used_fallback or created_for_source == 0:
+                poll = min(settings.self_heal_max_poll_minutes, poll + 2)
+            elif created_for_source >= 5:
+                poll = max(settings.self_heal_min_poll_minutes, poll - 1)
         config["poll_minutes"] = poll
+        config["crawl_mode"] = crawl_mode
         source.crawl_config_json = config
 
     def _record_source_failure(self, db: Session, source: Source, reason: str) -> None:
@@ -148,6 +164,7 @@ class CrawlerAgent(BaseAgent):
             sources = db.execute(select(Source).where(Source.is_active == True)).scalars().all()  # noqa: E712
             created = 0
             updated = 0
+            crawl_mode = get_text_control(db, "crawl_aggressiveness", "normal")
             for source in sources:
                 if self._source_in_cooldown(source):
                     updated += 1
@@ -188,7 +205,12 @@ class CrawlerAgent(BaseAgent):
                     created_for_source += 1
 
                 self._record_source_success(source)
-                self._update_poll_minutes(source, used_fallback=used_fallback, created_for_source=created_for_source)
+                self._update_poll_minutes(
+                    source,
+                    used_fallback=used_fallback,
+                    created_for_source=created_for_source,
+                    crawl_mode=crawl_mode,
+                )
                 updated += 1
             db.commit()
             result = AgentResult(processed=len(sources), created=created, updated=updated)
@@ -300,7 +322,7 @@ class ClusteringAgent(BaseAgent):
         return [value / valid_count for value in sums]
 
     def _find_candidate_story(
-        self, db: Session, article: Article, article_embedding: list[float]
+        self, db: Session, article: Article, article_embedding: list[float], min_confidence: float
     ) -> tuple[Story | None, float]:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.clustering_window_hours)
         candidates = db.execute(
@@ -330,7 +352,7 @@ class ClusteringAgent(BaseAgent):
                 best_confidence = confidence
                 best_story = story
 
-        if best_confidence < settings.clustering_min_confidence:
+        if best_confidence < min_confidence:
             return None, best_confidence
         return best_story, best_confidence
 
@@ -340,6 +362,9 @@ class ClusteringAgent(BaseAgent):
             articles = db.execute(select(Article).order_by(desc(Article.published_at)).limit(40)).scalars().all()
             created = 0
             updated = 0
+            dynamic_min_confidence = get_float_control(
+                db, "clustering_min_confidence", settings.clustering_min_confidence
+            )
             for article in articles:
                 linked = db.execute(
                     select(StoryArticle).where(StoryArticle.article_id == article.id)
@@ -361,7 +386,9 @@ class ClusteringAgent(BaseAgent):
                     )
                     db.flush()
 
-                story, confidence = self._find_candidate_story(db, article, article_embedding)
+                story, confidence = self._find_candidate_story(
+                    db, article, article_embedding, min_confidence=dynamic_min_confidence
+                )
 
                 if not story:
                     headline, bullets = summarize_story(article.title, [article.snippet or article.content_text])
@@ -824,6 +851,31 @@ class SelfHealAgent(BaseAgent):
             raise
 
 
+class PolicyTuningAgent(BaseAgent):
+    name = "policy_tuning"
+
+    def run(self, db: Session) -> AgentResult:
+        run = self._start_run(db)
+        try:
+            controls = tune_agent_controls(db)
+            set_memory(
+                db,
+                "policy_tuning_last_result",
+                {
+                    "value": controls,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_by": self.name,
+                },
+            )
+            db.commit()
+            result = AgentResult(processed=1, updated=1)
+            self._finish_run(db, run, result)
+            return result
+        except Exception as exc:
+            self._fail_run(db, run, exc)
+            raise
+
+
 PIPELINE = {
     "crawler": CrawlerAgent(),
     "normalization": NormalizationAgent(),
@@ -834,6 +886,7 @@ PIPELINE = {
     "ranking": RankingAgent(),
     "monitoring_qa": MonitoringQaAgent(),
     "self_heal": SelfHealAgent(),
+    "policy_tuning": PolicyTuningAgent(),
     "publishing": PublishingAgent(),
 }
 
@@ -860,6 +913,7 @@ def run_pipeline(db: Session) -> dict[str, dict]:
         "ranking",
         "monitoring_qa",
         "self_heal",
+        "policy_tuning",
         "publishing",
     ]
     return run_pipeline_steps(db, ordered)

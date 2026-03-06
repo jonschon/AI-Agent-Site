@@ -18,6 +18,7 @@ from app.schemas.news import (
     OpsQualityMetrics,
 )
 from app.services.feed_service import get_agent_runs, get_exceptions
+from app.services.memory_service import list_memory
 from app.services.ops_service import collect_ops_quality_metrics, evaluate_ops_policy, evaluate_prepublish_policy
 
 router = APIRouter(prefix="/internal")
@@ -101,6 +102,7 @@ def run_autonomous_cycle(
         "ranking",
         "monitoring_qa",
         "self_heal",
+        "policy_tuning",
     ]
     results = run_pipeline_steps(db, prepublish_steps)
     prepublish_policy = evaluate_prepublish_policy(db)
@@ -141,3 +143,15 @@ def run_autonomous_cycle(
         prepublish_metrics=prepublish_policy.metrics,
         pipeline_results=results,
     )
+
+
+@router.get("/ops/controls")
+def read_ops_controls(
+    db: Session = Depends(get_db),
+    _: None = Depends(_check_internal_auth),
+) -> dict:
+    rows = list_memory(db)
+    controls = []
+    for row in rows:
+        controls.append({"key": row.key, "value": row.value_json, "updated_at": row.updated_at.isoformat()})
+    return {"controls": controls}

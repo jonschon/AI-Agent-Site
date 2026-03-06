@@ -37,6 +37,7 @@ def run_once_autonomous() -> dict:
             "ranking",
             "monitoring_qa",
             "self_heal",
+            "policy_tuning",
         ]
         results = run_pipeline_steps(db, prepublish_steps)
         policy = evaluate_prepublish_policy(db)

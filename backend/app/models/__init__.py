@@ -1,4 +1,5 @@
 from app.models.news import (
+    AgentMemory,
     AgentRun,
     Article,
     ArticleEmbedding,
@@ -16,6 +17,7 @@ from app.models.news import (
 )
 
 __all__ = [
+    "AgentMemory",
     "Source",
     "RawArticle",
     "Article",
