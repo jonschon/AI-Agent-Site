@@ -216,3 +216,70 @@ a {
     padding: 0;
   }
 }
+
+.rankings-panel {
+  background: linear-gradient(135deg, #fff9ec, #fff);
+}
+
+.ranking-widget {
+  padding: 0.65rem;
+}
+
+.ranking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.ranking-header h5 {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.metric-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--chip);
+  color: #4f4a41;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  white-space: nowrap;
+}
+
+.ranking-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+}
+
+.ranking-table th,
+.ranking-table td {
+  text-align: left;
+  padding: 0.34rem 0.2rem;
+  border-bottom: 1px dashed var(--line);
+}
+
+.ranking-table th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+.ranking-table td:first-child,
+.ranking-table th:first-child {
+  width: 2.25rem;
+}
+
+.ranking-table td:last-child,
+.ranking-table th:last-child {
+  width: 3.4rem;
+  text-align: right;
+}
+
+.ranking-table tbody tr:last-child td {
+  border-bottom: none;
+}
