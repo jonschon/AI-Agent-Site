@@ -170,6 +170,40 @@ a {
   padding: 0.5rem 0;
 }
 
+.feed-state-compact {
+  margin-top: 0.25rem;
+}
+
+.retry-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+}
+
+.retry-btn:hover {
+  background: #f8f4ec;
+}
+
+.skeleton-card {
+  min-height: 120px;
+  background:
+    linear-gradient(90deg, rgba(236, 230, 218, 0.8) 0%, rgba(255, 253, 248, 0.9) 50%, rgba(236, 230, 218, 0.8) 100%);
+  background-size: 200% 100%;
+  animation: loading-shimmer 1.4s infinite linear;
+}
+
+@keyframes loading-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;

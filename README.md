@@ -7,6 +7,7 @@ MVP scope is intentionally locked to:
 - homepage feed + story/category/search views
 - internal operational endpoints for runs/exceptions/basic policy health
 - no additional platform modules until post-MVP stabilization
+- frontend includes resilient loading/empty/error states so feed remains usable during backend/API issues
 
 ## Stack
 - Frontend: Next.js (`frontend/`)
