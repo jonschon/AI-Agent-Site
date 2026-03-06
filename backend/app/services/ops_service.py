@@ -114,3 +114,26 @@ def evaluate_ops_policy(db: Session) -> OpsPolicyEvaluation:
 
     status = "pass" if not blockers else "hold"
     return OpsPolicyEvaluation(status=status, blocking_reasons=blockers, metrics=metrics)
+
+
+def evaluate_prepublish_policy(db: Session) -> OpsPolicyEvaluation:
+    metrics = collect_ops_quality_metrics(db)
+    blockers: list[str] = []
+
+    if metrics.open_exceptions_high > settings.ops_max_open_high_exceptions:
+        blockers.append(
+            f"High severity exceptions exceed limit ({metrics.open_exceptions_high} > {settings.ops_max_open_high_exceptions})"
+        )
+
+    if metrics.bullet_compliance_rate < settings.ops_min_bullet_compliance:
+        blockers.append(
+            f"Bullet compliance too low ({metrics.bullet_compliance_rate:.2f} < {settings.ops_min_bullet_compliance:.2f})"
+        )
+
+    if metrics.cluster_confidence_avg < 0.5 and metrics.active_story_count > 0:
+        blockers.append(
+            f"Average cluster confidence too low ({metrics.cluster_confidence_avg:.2f} < 0.50)"
+        )
+
+    status = "pass" if not blockers else "hold"
+    return OpsPolicyEvaluation(status=status, blocking_reasons=blockers, metrics=metrics)

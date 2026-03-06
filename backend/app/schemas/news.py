@@ -102,3 +102,11 @@ class OpsPolicyEvaluation(BaseModel):
     status: str
     blocking_reasons: list[str]
     metrics: OpsQualityMetrics
+
+
+class AutonomousCycleResult(BaseModel):
+    status: str
+    action: str
+    blocking_reasons: list[str]
+    prepublish_metrics: OpsQualityMetrics
+    pipeline_results: dict

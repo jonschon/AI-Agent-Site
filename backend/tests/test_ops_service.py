@@ -15,6 +15,7 @@ from app.models.news import (
     StoryTier,
 )
 from app.services.ops_service import collect_ops_quality_metrics, evaluate_ops_policy
+from app.services.ops_service import evaluate_prepublish_policy
 
 
 def test_collect_ops_quality_metrics() -> None:
@@ -76,3 +77,28 @@ def test_policy_eval_holds_when_no_publish() -> None:
         policy = evaluate_ops_policy(db)
         assert policy.status == "hold"
         assert any("No publish snapshot" in reason for reason in policy.blocking_reasons)
+
+
+def test_prepublish_policy_holds_on_high_exceptions(monkeypatch) -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        db.add(
+            ExceptionItem(
+                agent_name="monitoring_qa",
+                object_type="story",
+                object_id="1",
+                reason="bad bullets",
+                severity="high",
+                status=ExceptionStatus.open,
+            )
+        )
+        db.commit()
+
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "ops_max_open_high_exceptions", 0)
+        policy = evaluate_prepublish_policy(db)
+        assert policy.status == "hold"
+        assert any("High severity exceptions exceed limit" in reason for reason in policy.blocking_reasons)

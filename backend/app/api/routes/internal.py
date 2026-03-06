@@ -5,14 +5,20 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agents.pipeline import run_pipeline, run_single_agent
+from app.agents.pipeline import run_pipeline, run_pipeline_steps, run_single_agent
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.news import ExceptionItem, ExceptionStatus
 from app.schemas.internal import ResolveExceptionRequest
-from app.schemas.news import AgentRunOut, ExceptionOut, OpsPolicyEvaluation, OpsQualityMetrics
+from app.schemas.news import (
+    AgentRunOut,
+    AutonomousCycleResult,
+    ExceptionOut,
+    OpsPolicyEvaluation,
+    OpsQualityMetrics,
+)
 from app.services.feed_service import get_agent_runs, get_exceptions
-from app.services.ops_service import collect_ops_quality_metrics, evaluate_ops_policy
+from app.services.ops_service import collect_ops_quality_metrics, evaluate_ops_policy, evaluate_prepublish_policy
 
 router = APIRouter(prefix="/internal")
 
@@ -80,16 +86,57 @@ def read_ops_policy_eval(
     return evaluate_ops_policy(db)
 
 
-@router.post("/ops/autonomous-cycle")
+@router.post("/ops/autonomous-cycle", response_model=AutonomousCycleResult)
 def run_autonomous_cycle(
     db: Session = Depends(get_db),
     _: None = Depends(_check_internal_auth),
-) -> dict:
-    results = run_pipeline(db)
-    policy = evaluate_ops_policy(db)
-    return {
-        "pipeline_results": results,
-        "policy_status": policy.status,
-        "blocking_reasons": policy.blocking_reasons,
-        "generated_at": policy.metrics.generated_at.isoformat(),
-    }
+) -> AutonomousCycleResult:
+    prepublish_steps = [
+        "crawler",
+        "normalization",
+        "embedding",
+        "clustering",
+        "merge_clusters",
+        "summarization_tagging",
+        "ranking",
+        "monitoring_qa",
+    ]
+    results = run_pipeline_steps(db, prepublish_steps)
+    prepublish_policy = evaluate_prepublish_policy(db)
+    if prepublish_policy.status == "pass":
+        publish_result = run_single_agent(db, "publishing")
+        results["publishing"] = {
+            "processed": publish_result["processed"],
+            "created": publish_result["created"],
+            "updated": publish_result["updated"],
+        }
+        return AutonomousCycleResult(
+            status="pass",
+            action="published",
+            blocking_reasons=[],
+            prepublish_metrics=prepublish_policy.metrics,
+            pipeline_results=results,
+        )
+
+    db.add(
+        ExceptionItem(
+            agent_name="autonomous_cycle",
+            object_type="cycle",
+            object_id=datetime.now(timezone.utc).isoformat(),
+            reason="Autonomous cycle held due to policy blockers",
+            severity="high",
+            payload_json={
+                "blocking_reasons": prepublish_policy.blocking_reasons,
+                "generated_at": prepublish_policy.metrics.generated_at.isoformat(),
+            },
+        )
+    )
+    db.commit()
+
+    return AutonomousCycleResult(
+        status="hold",
+        action="hold",
+        blocking_reasons=prepublish_policy.blocking_reasons,
+        prepublish_metrics=prepublish_policy.metrics,
+        pipeline_results=results,
+    )
