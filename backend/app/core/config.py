@@ -16,8 +16,12 @@ class Settings(BaseSettings):
     openai_timeout_seconds: int = 30
     openai_embedding_dimensions: Optional[int] = None
 
-    publish_interval_minutes: int = 10
+    publish_interval_minutes: int = 30
     crawl_interval_minutes: int = 5
+    crawler_fetch_limit_per_source: int = 12
+    crawler_max_new_articles_per_source: int = 6
+    crawler_max_new_articles_per_cycle: int = 60
+    summarization_skip_unchanged: bool = True
     clustering_window_hours: int = 72
     clustering_min_confidence: float = 0.58
     clustering_exception_floor: float = 0.45

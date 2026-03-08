@@ -38,7 +38,7 @@ from app.services.cluster import (
 )
 from app.services.adaptive_policy_service import tune_agent_controls
 from app.services.crawler import build_synthetic_entry, fetch_feed_entries
-from app.services.memory_service import get_float_control, get_text_control, set_memory
+from app.services.memory_service import get_float_control, get_memory, get_text_control, set_memory
 from app.services.model_gateway import generate_embedding, infer_tags, summarize_story
 from app.services.scoring import apply_retention_tier, momentum, score_story
 from app.services.self_heal_service import auto_resolve_stale_low_exceptions
@@ -174,17 +174,27 @@ class CrawlerAgent(BaseAgent):
         run = self._start_run(db)
         try:
             sources = db.execute(select(Source).where(Source.is_active == True)).scalars().all()  # noqa: E712
+            if sources:
+                # Rotate source order each cycle so global caps do not consistently favor the same sources.
+                cycle_seconds = max(settings.publish_interval_minutes * 60, 60)
+                cycle_index = int(datetime.now(timezone.utc).timestamp() // cycle_seconds)
+                offset = cycle_index % len(sources)
+                sources = sources[offset:] + sources[:offset]
             created = 0
             updated = 0
+            remaining_cycle_budget = settings.crawler_max_new_articles_per_cycle
             crawl_mode = get_text_control(db, "crawl_aggressiveness", "normal")
             for source in sources:
+                if remaining_cycle_budget <= 0:
+                    break
                 if self._source_in_cooldown(source):
                     updated += 1
                     continue
 
+                source_budget = min(settings.crawler_max_new_articles_per_source, remaining_cycle_budget)
                 used_fallback = False
                 try:
-                    entries = fetch_feed_entries(source, limit=15)
+                    entries = fetch_feed_entries(source, limit=settings.crawler_fetch_limit_per_source)
                 except Exception as exc:  # noqa: BLE001
                     self._record_source_failure(db, source, str(exc))
                     updated += 1
@@ -196,6 +206,8 @@ class CrawlerAgent(BaseAgent):
 
                 created_for_source = 0
                 for entry in entries:
+                    if created_for_source >= source_budget or remaining_cycle_budget <= 0:
+                        break
                     exists = db.execute(
                         select(RawArticle).where(RawArticle.raw_url == entry["url"]).limit(1)
                     ).scalar_one_or_none()
@@ -215,6 +227,7 @@ class CrawlerAgent(BaseAgent):
                     db.add(raw)
                     created += 1
                     created_for_source += 1
+                    remaining_cycle_budget -= 1
 
                 self._record_source_success(source)
                 self._update_poll_minutes(
@@ -608,6 +621,12 @@ class MergeClustersAgent(BaseAgent):
 class SummarizationTaggingAgent(BaseAgent):
     name = "summarization_tagging"
 
+    def _summary_signature(self, story: Story, articles: list[Article], bullet_count: int) -> str:
+        parts = [str(story.id), str(bullet_count), f"tier:{story.tier.value}"]
+        for article in articles:
+            parts.append(f"{article.id}:{article.content_hash}")
+        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
@@ -624,9 +643,31 @@ class SummarizationTaggingAgent(BaseAgent):
                 snippets = [a.snippet or a.content_text for a in articles]
                 headline_seed = articles[0].title if articles else story.headline
                 bullet_count = target_bullet_count(story.tier, story.importance_score)
-                headline, bullets = summarize_story(headline_seed, snippets, max_bullets=bullet_count)
-                story.headline = headline
-                story.bullets_json = bullets
+                headline = story.headline
+                signature = self._summary_signature(story, articles, bullet_count)
+                memory_key = f"summary_signature:{story.id}"
+                signature_row = get_memory(db, memory_key)
+                current_signature = (signature_row.value_json or {}).get("value") if signature_row else None
+                has_valid_existing_summary = bool((story.headline or "").strip()) and 1 <= len(story.bullets_json or []) <= 3
+                should_resummarize = not (
+                    settings.summarization_skip_unchanged
+                    and has_valid_existing_summary
+                    and current_signature == signature
+                )
+
+                if should_resummarize:
+                    headline, bullets = summarize_story(headline_seed, snippets, max_bullets=bullet_count)
+                    story.headline = headline
+                    story.bullets_json = bullets
+                    set_memory(
+                        db,
+                        memory_key,
+                        {
+                            "value": signature,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_by": self.name,
+                        },
+                    )
 
                 tags = infer_tags(f"{headline} {' '.join(snippets)}")
                 for tag_name in tags:
