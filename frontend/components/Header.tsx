@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-const categories = ["All", "Models", "Startups", "Agents", "Research", "Infrastructure"];
+const categories = ["Top News", "Models", "Startups", "Agents", "Research", "Infrastructure"];
 
 export function Header() {
   return (
@@ -21,7 +21,7 @@ export function Header() {
         {categories.map((category) => (
           <Link
             key={category}
-            href={category === "All" ? "/" : `/category/${encodeURIComponent(category)}`}
+            href={category === "Top News" ? "/" : `/category/${encodeURIComponent(category)}`}
           >
             {category}
           </Link>
