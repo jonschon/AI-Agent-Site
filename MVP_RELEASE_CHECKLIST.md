@@ -68,7 +68,21 @@ Set one daily reminder/automation at a fixed time (example: 09:00 ET):
 - Command: `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make daily-ops-check`
 - If it fails, run one manual rerun and check Render service logs.
 
-## 8. Current Production Commands
+## 8. Automation Setup (User-owned)
+GitHub Actions daily check:
+1. in GitHub repo settings, add Actions secrets:
+   - `PROD_API_BASE` = `https://<backend>.onrender.com/v1`
+   - `PROD_INTERNAL_API_KEY` = your backend internal API key
+2. keep `.github/workflows/daily-ops-check.yml` enabled
+3. optionally run it manually via `Actions` -> `Daily Ops Check` -> `Run workflow`
+
+Render Cron commands (every 45 min):
+1. Autonomous cycle:
+   - `curl -X POST "https://<backend>.onrender.com/v1/internal/ops/autonomous-cycle" -H "x-internal-api-key:$INTERNAL_API_KEY"`
+2. Validation pass:
+   - `curl -X POST "https://<backend>.onrender.com/v1/internal/agents/run/leaderboard_validation" -H "x-internal-api-key:$INTERNAL_API_KEY"`
+
+## 9. Current Production Commands
 - Full local gate: `make release-gate`
 - Live check only: `API_BASE=https://<backend>.onrender.com/v1 make live-check`
 - Live check + publish trigger: `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make live-publish-check`

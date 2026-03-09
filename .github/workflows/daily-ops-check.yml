@@ -1,0 +1,26 @@
+name: Daily Ops Check
+
+on:
+  schedule:
+    # 09:00 America/New_York is 13:00 UTC during DST (adjust seasonally if needed)
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+jobs:
+  daily-ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      API_BASE: ${{ secrets.PROD_API_BASE }}
+      INTERNAL_API_KEY: ${{ secrets.PROD_INTERNAL_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          test -n "$API_BASE" || (echo "Missing secret PROD_API_BASE" && exit 1)
+          test -n "$INTERNAL_API_KEY" || (echo "Missing secret PROD_INTERNAL_API_KEY" && exit 1)
+
+      - name: Run daily ops check
+        run: make daily-ops-check
