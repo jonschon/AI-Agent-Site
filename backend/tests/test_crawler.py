@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from app.models.news import Source, SourceType
-from app.services.crawler import canonicalize_url, fetch_feed_entries
+from app.services.crawler import canonicalize_url, fetch_article_image_url, fetch_feed_entries
 
 
 class _Parsed:
@@ -37,9 +37,19 @@ def test_fetch_feed_entries_parses_entries(monkeypatch) -> None:
         )
 
     monkeypatch.setattr("app.services.crawler.feedparser.parse", _fake_parse)
+    monkeypatch.setattr("app.services.crawler.fetch_article_image_url", lambda _: None)
 
     entries = fetch_feed_entries(source)
     assert len(entries) == 1
     assert entries[0]["url"] == "https://example.com/story"
     assert entries[0]["title"] == "AI Story"
     assert entries[0]["content"]
+
+
+def test_fetch_article_image_url_reads_og_image(monkeypatch) -> None:
+    class _Resp:
+        status_code = 200
+        text = '<html><head><meta property="og:image" content="https://img.example.com/a.jpg"/></head></html>'
+
+    monkeypatch.setattr("app.services.crawler.httpx.get", lambda *args, **kwargs: _Resp())
+    assert fetch_article_image_url("https://example.com/story") == "https://img.example.com/a.jpg"

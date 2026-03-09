@@ -39,6 +39,7 @@ export function StoryCard({ story, variant }: Props) {
       ? deckSource.slice(0, deckLimit) + (deckSource.length > deckLimit ? "..." : "")
       : null;
   const imageHref = normalizeExternalUrl(story.image_url || "");
+  const imageSourceHref = normalizeExternalUrl(story.image_source?.url || "");
   const showTopImage = (variant === "lead" || variant === "major") && !!imageHref;
   return (
     <article className={`feed-card ${variant === "lead" ? "lead" : "major"}`}>
@@ -60,9 +61,23 @@ export function StoryCard({ story, variant }: Props) {
           </ul>
         </Link>
         {showTopImage && imageHref && (
-          <Link href={`/story/${story.slug}`} className="story-image-wrap" aria-label={`${story.headline} image`}>
-            <img src={imageHref} alt={story.headline} className="story-image" loading="lazy" />
-          </Link>
+          <div className="story-image-wrap">
+            <Link href={`/story/${story.slug}`} className="story-image-link" aria-label={`${story.headline} image`}>
+              <img src={imageHref} alt={story.headline} className="story-image" loading="lazy" />
+            </Link>
+            {story.image_source && (
+              <div className="story-image-credit">
+                Image source:{" "}
+                {imageSourceHref ? (
+                  <a href={imageSourceHref} target="_blank" rel="noreferrer noopener">
+                    {story.image_source.source_name}
+                  </a>
+                ) : (
+                  story.image_source.source_name
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
       <div className="meta-line">

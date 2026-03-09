@@ -21,6 +21,7 @@ EXPECTED_STORY_KEYS = {
     "headline",
     "bullets",
     "image_url",
+    "image_source",
     "tags",
     "sources",
     "discussions",
@@ -48,6 +49,10 @@ def _assert_story_shape(story: dict) -> None:
     assert 1 <= len(story["bullets"]) <= 3
     assert all(isinstance(item, str) for item in story["bullets"])
     assert story["image_url"] is None or isinstance(story["image_url"], str)
+    if story["image_source"] is not None:
+        assert set(story["image_source"].keys()) == EXPECTED_SOURCE_KEYS
+        assert isinstance(story["image_source"]["source_name"], str)
+        assert isinstance(story["image_source"]["url"], str)
     assert isinstance(story["tags"], list)
     assert isinstance(story["sources"], list)
     assert isinstance(story["discussions"], list)

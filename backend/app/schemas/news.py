@@ -20,6 +20,7 @@ class StoryCard(BaseModel):
     headline: str
     bullets: list[str] = Field(min_length=1, max_length=3)
     image_url: Optional[str] = None
+    image_source: Optional[SourceLink] = None
     tags: list[str]
     sources: list[SourceLink]
     discussions: list[DiscussionLinkOut]

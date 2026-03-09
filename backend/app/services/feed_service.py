@@ -166,7 +166,13 @@ def _story_card(db: Session, story: Story) -> StoryCard:
             }
         )
     sources = _select_story_sources(source_candidates)
-    story_image_url = next((item.get("image_url") for item in source_candidates if item.get("image_url")), None)
+    image_candidate = next((item for item in source_candidates if item.get("image_url")), None)
+    story_image_url = image_candidate.get("image_url") if image_candidate else None
+    image_source = (
+        SourceLink(source_name=str(image_candidate["source_name"]), url=str(image_candidate["url"]))
+        if image_candidate
+        else None
+    )
 
     tags_rows = db.execute(
         select(Tag.name)
@@ -196,6 +202,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         headline=story.headline,
         bullets=(story.bullets_json or ["Coverage is evolving as additional sources publish."])[:3],
         image_url=story_image_url,
+        image_source=image_source,
         tags=tags_rows,
         sources=sources,
         discussions=[DiscussionLinkOut(platform=d.platform, url=d.url) for d in discussions],

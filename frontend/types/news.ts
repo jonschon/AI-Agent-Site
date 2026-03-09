@@ -14,6 +14,7 @@ export type StoryCard = {
   headline: string;
   bullets: string[];
   image_url?: string | null;
+  image_source?: SourceLink | null;
   tags: string[];
   sources: SourceLink[];
   discussions: DiscussionLink[];
