@@ -6,7 +6,9 @@ export function Header() {
   return (
     <header className="header">
       <div className="brand-row">
-        <div className="logo">SignalWire AI News</div>
+        <Link href="/" className="logo">
+          SignalWire AI News
+        </Link>
         <nav className="nav">
           <Link href="/">Home</Link>
           <Link href="/category/Models">Models</Link>
@@ -14,7 +16,6 @@ export function Header() {
           <Link href="/category/Agents">Agents</Link>
           <Link href="/category/Research">Research</Link>
           <Link href="/category/Infrastructure">Infrastructure</Link>
-          <Link href="/search">Search</Link>
         </nav>
       </div>
       <div className="filters">
