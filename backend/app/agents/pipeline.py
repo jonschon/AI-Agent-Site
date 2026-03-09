@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import statistics
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -753,9 +754,134 @@ class RankingAgent(BaseAgent):
         ).scalar_one()
         return int(count or 0)
 
+    def _clamp01(self, value: float) -> float:
+        return max(0.0, min(1.0, value))
+
+    def _source_story_ids(self, db: Session, source_id: int, cutoff: datetime) -> list[int]:
+        rows = db.execute(
+            select(StoryArticle.story_id)
+            .join(Article, Article.id == StoryArticle.article_id)
+            .where(Article.source_id == source_id, Article.published_at >= cutoff)
+            .distinct()
+        ).all()
+        return [int(row[0]) for row in rows]
+
+    def _source_originality_score(
+        self, db: Session, source_id: int, story_ids: list[int], freshness_window_hours: int = 2
+    ) -> float:
+        if not story_ids:
+            return 0.0
+        fresh_hits = 0
+        tolerance = timedelta(hours=freshness_window_hours)
+        for story_id in story_ids:
+            earliest_any = db.execute(
+                select(func.min(Article.published_at))
+                .join(StoryArticle, StoryArticle.article_id == Article.id)
+                .where(StoryArticle.story_id == story_id)
+            ).scalar_one_or_none()
+            earliest_source = db.execute(
+                select(func.min(Article.published_at))
+                .join(StoryArticle, StoryArticle.article_id == Article.id)
+                .where(StoryArticle.story_id == story_id, Article.source_id == source_id)
+            ).scalar_one_or_none()
+            if not earliest_any or not earliest_source:
+                continue
+            if self._to_aware_utc(earliest_source) <= self._to_aware_utc(earliest_any) + tolerance:
+                fresh_hits += 1
+        return self._clamp01(fresh_hits / max(1, len(story_ids)))
+
+    def _source_citation_uptake_score(self, db: Session, story_ids: list[int]) -> float:
+        if not story_ids:
+            return 0.0
+        co_source_counts: list[float] = []
+        for story_id in story_ids:
+            distinct_sources = db.execute(
+                select(func.count(func.distinct(Article.source_id)))
+                .join(StoryArticle, StoryArticle.article_id == Article.id)
+                .where(StoryArticle.story_id == story_id)
+            ).scalar_one()
+            co_source_counts.append(max(0.0, float(distinct_sources or 0) - 1.0))
+        avg_co_sources = sum(co_source_counts) / len(co_source_counts)
+        return self._clamp01(avg_co_sources / 5.0)
+
+    def _source_correction_score(self, db: Session, source_id: int, cutoff: datetime) -> float:
+        open_total = db.execute(
+            select(func.count(ExceptionItem.id)).where(
+                ExceptionItem.object_type == "source",
+                ExceptionItem.object_id == str(source_id),
+                ExceptionItem.status == "open",
+                ExceptionItem.created_at >= cutoff,
+            )
+        ).scalar_one()
+        open_high = db.execute(
+            select(func.count(ExceptionItem.id)).where(
+                ExceptionItem.object_type == "source",
+                ExceptionItem.object_id == str(source_id),
+                ExceptionItem.status == "open",
+                ExceptionItem.severity == "high",
+                ExceptionItem.created_at >= cutoff,
+            )
+        ).scalar_one()
+        penalty = 0.25 * float(open_high or 0) + 0.10 * float(open_total or 0)
+        return self._clamp01(1.0 - penalty)
+
+    def _source_consistency_score(self, confidences: list[float]) -> float:
+        if len(confidences) <= 1:
+            return 0.8
+        stdev = statistics.pstdev(confidences)
+        return self._clamp01(1.0 - min(1.0, stdev))
+
+    def _update_source_authority_scores(self, db: Session) -> None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        sources = db.execute(select(Source).where(Source.is_active == True)).scalars().all()  # noqa: E712
+        for source in sources:
+            confidence_rows = db.execute(
+                select(StoryArticle.cluster_confidence)
+                .join(Article, Article.id == StoryArticle.article_id)
+                .where(Article.source_id == source.id, Article.published_at >= cutoff)
+            ).scalars().all()
+            confidences = [float(value) for value in confidence_rows]
+            if not confidences:
+                continue
+
+            story_ids = self._source_story_ids(db, source.id, cutoff)
+            accuracy = self._clamp01(sum(confidences) / len(confidences))
+            originality = self._source_originality_score(db, source.id, story_ids)
+            citation_uptake = self._source_citation_uptake_score(db, story_ids)
+            correction = self._source_correction_score(db, source.id, cutoff)
+            consistency = self._source_consistency_score(confidences)
+            observed = (
+                0.35 * accuracy
+                + 0.20 * originality
+                + 0.20 * citation_uptake
+                + 0.15 * correction
+                + 0.10 * consistency
+            )
+
+            config = dict(source.crawl_config_json or {})
+            prior = config.get("authority_prior")
+            if not isinstance(prior, (float, int)):
+                prior = float(source.authority_score)
+                config["authority_prior"] = round(float(prior), 3)
+            final_score = self._clamp01(0.60 * observed + 0.40 * float(prior))
+            source.authority_score = round(final_score, 3)
+            config["authority_v1"] = {
+                "window_days": 90,
+                "accuracy": round(accuracy, 3),
+                "originality": round(originality, 3),
+                "citation_uptake": round(citation_uptake, 3),
+                "correction_behavior": round(correction, 3),
+                "consistency": round(consistency, 3),
+                "observed_score": round(observed, 3),
+                "final_score": round(final_score, 3),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            source.crawl_config_json = config
+
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
+            self._update_source_authority_scores(db)
             stories = db.execute(select(Story).where(Story.status == StoryStatus.active)).scalars().all()
             now = datetime.now(timezone.utc)
             story_diversity: dict[int, int] = {}
