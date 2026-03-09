@@ -953,7 +953,18 @@ class RankingAgent(BaseAgent):
                     story.tier = StoryTier.quick
 
             if ordered and not lead_assigned:
-                ordered[0].tier = StoryTier.lead
+                fallback_lead = next(
+                    (
+                        story
+                        for story in ordered
+                        if story_hours_old.get(story.id, float("inf")) <= self.LEAD_MAX_HOURS
+                        and story_diversity.get(story.id, 0) >= settings.ranking_lead_min_source_diversity
+                        and story.tier != StoryTier.archived
+                    ),
+                    None,
+                )
+                if fallback_lead is not None:
+                    fallback_lead.tier = StoryTier.lead
 
             db.commit()
             result = AgentResult(processed=len(stories), updated=len(stories))

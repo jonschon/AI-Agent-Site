@@ -269,10 +269,37 @@ DEFAULT_SOURCES = [
 
 
 def ensure_seed_data(db: Session) -> None:
-    existing_domains = set(db.execute(select(Source.domain)).scalars().all())
+    existing_sources = {
+        source.domain: source for source in db.execute(select(Source)).scalars().all()
+    }
+    now = datetime.now(timezone.utc)
 
     for name, domain, source_type, authority, crawl_config in DEFAULT_SOURCES:
-        if domain in existing_domains:
+        existing = existing_sources.get(domain)
+        if existing is not None:
+            existing_config = dict(existing.crawl_config_json or {})
+            default_config = dict(crawl_config or {})
+            existing_urls_raw = existing_config.get("feed_urls")
+            default_urls_raw = default_config.get("feed_urls")
+            existing_urls = existing_urls_raw if isinstance(existing_urls_raw, list) else []
+            default_urls = default_urls_raw if isinstance(default_urls_raw, list) else []
+            merged_urls = list(existing_urls)
+            for url in default_urls:
+                if isinstance(url, str) and url not in merged_urls:
+                    merged_urls.append(url)
+
+            updated = False
+            if merged_urls != existing_urls:
+                existing_config["feed_urls"] = merged_urls
+                updated = True
+            for key in ("poll_minutes", "timeout_seconds"):
+                if key not in existing_config and key in default_config:
+                    existing_config[key] = default_config[key]
+                    updated = True
+            if updated:
+                existing.crawl_config_json = existing_config
+                existing.updated_at = now
+                db.add(existing)
             continue
         db.add(
             Source(
@@ -283,9 +310,8 @@ def ensure_seed_data(db: Session) -> None:
                 state=SourceState.trusted,
                 crawl_config_json=crawl_config,
                 is_active=True,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
+                created_at=now,
+                updated_at=now,
             )
         )
-        existing_domains.add(domain)
     db.commit()

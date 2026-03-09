@@ -53,9 +53,34 @@ function numberFromSignal(value: unknown): number | null {
   return null;
 }
 
+const NON_ENTITY_KEYS = new Set([
+  "items",
+  "item",
+  "count",
+  "total",
+  "value",
+  "values",
+  "score",
+  "scores",
+  "rank",
+  "ranks",
+  "type",
+  "title",
+  "observed_at",
+  "updated_at",
+  "generated_at",
+  "window_days",
+]);
+
+function isEntityKey(key: string): boolean {
+  const normalized = key.trim().toLowerCase();
+  if (!normalized || NON_ENTITY_KEYS.has(normalized)) return false;
+  return /[a-z]/i.test(normalized);
+}
+
 function toRankingRows(signal: SignalWidget, scoreSuffix?: string): RankingRow[] {
   const entries = Object.entries(signal.data)
-    .filter(([, value]) => typeof value === "number" || typeof value === "string")
+    .filter(([key, value]) => isEntityKey(key) && (typeof value === "number" || typeof value === "string"))
     .map(([key, value]) => {
       const numeric = numberFromSignal(value);
       return {
