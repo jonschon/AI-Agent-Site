@@ -1410,7 +1410,7 @@ PIPELINE = {
 }
 
 
-def reconcile_stale_running_agent_runs(db: Session, stale_minutes: int = 60) -> int:
+def reconcile_stale_running_agent_runs(db: Session, stale_minutes: int = 15) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
     rows = db.execute(
         select(AgentRun).where(
