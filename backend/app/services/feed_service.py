@@ -44,16 +44,103 @@ def _to_aware_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+def _source_link_score(*, authority: float, hours_old: float, cluster_confidence: float) -> float:
+    recency = 1.0 / (1.0 + max(0.0, hours_old) / 24.0)
+    confidence = _clamp01(cluster_confidence)
+    return 0.45 * authority + 0.25 * recency + 0.20 * confidence + 0.10
+
+
+def _select_story_sources(
+    candidates: list[dict],
+    *,
+    max_total: int = 6,
+    max_per_source: int = 2,
+    min_unique_target: int = 3,
+) -> list[SourceLink]:
+    if not candidates:
+        return []
+
+    by_source: dict[int, list[dict]] = defaultdict(list)
+    for item in candidates:
+        by_source[item["source_id"]].append(item)
+    for source_items in by_source.values():
+        source_items.sort(key=lambda item: item["score"], reverse=True)
+
+    available_unique = len(by_source)
+    target_unique = min(min_unique_target, available_unique, max_total)
+    selected: list[dict] = []
+    used_urls: set[str] = set()
+    source_counts: dict[int, int] = defaultdict(int)
+
+    # First pass: take one top source link from distinct sources to preserve diversity.
+    source_top = sorted(
+        [items[0] for items in by_source.values() if items],
+        key=lambda item: item["score"],
+        reverse=True,
+    )
+    for item in source_top:
+        if len(selected) >= target_unique:
+            break
+        if item["url"] in used_urls:
+            continue
+        selected.append(item)
+        used_urls.add(item["url"])
+        source_counts[item["source_id"]] += 1
+
+    # Second pass: fill remaining slots by score, respecting per-source cap.
+    ranked_all = sorted(candidates, key=lambda item: item["score"], reverse=True)
+    for item in ranked_all:
+        if len(selected) >= max_total:
+            break
+        if item["url"] in used_urls:
+            continue
+        if source_counts[item["source_id"]] >= max_per_source:
+            continue
+        selected.append(item)
+        used_urls.add(item["url"])
+        source_counts[item["source_id"]] += 1
+
+    return [SourceLink(source_name=item["source_name"], url=item["url"]) for item in selected]
+
+
 def _story_card(db: Session, story: Story) -> StoryCard:
     source_rows = db.execute(
-        select(Source.name, Article.canonical_url)
+        select(
+            Source.id,
+            Source.name,
+            Source.authority_score,
+            Article.canonical_url,
+            Article.published_at,
+            StoryArticle.cluster_confidence,
+        )
         .join(Article, Article.source_id == Source.id)
         .join(StoryArticle, StoryArticle.article_id == Article.id)
         .where(StoryArticle.story_id == story.id)
         .order_by(desc(Article.published_at))
-        .limit(6)
+        .limit(24)
     ).all()
-    sources = [SourceLink(source_name=name, url=url) for name, url in source_rows]
+    now = datetime.now(timezone.utc)
+    source_candidates: list[dict] = []
+    for source_id, source_name, authority_score, url, published_at, cluster_confidence in source_rows:
+        published = _to_aware_utc(published_at)
+        hours_old = (now - published).total_seconds() / 3600
+        source_candidates.append(
+            {
+                "source_id": int(source_id),
+                "source_name": str(source_name),
+                "url": str(url),
+                "score": _source_link_score(
+                    authority=float(authority_score or 0.0),
+                    hours_old=hours_old,
+                    cluster_confidence=float(cluster_confidence or 0.0),
+                ),
+            }
+        )
+    sources = _select_story_sources(source_candidates)
 
     tags_rows = db.execute(
         select(Tag.name)
@@ -68,7 +155,6 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         .limit(3)
     ).scalars().all()
 
-    now = datetime.now(timezone.utc)
     new_sources = max(len(sources) - 1, 0)
     updated_recently = (now - _to_aware_utc(story.last_updated_at)).total_seconds() < 3600
     badges = badges_for_story(
