@@ -50,8 +50,8 @@ const RANKING_CONFIGS: RankingConfig[] = [
   },
   {
     topic: "Infrastructure Leaders",
-    metric: "Announced AI compute capacity added (180d, H100-eq)",
-    scoreLabel: "Capacity",
+    metric: "Estimated total installed AI compute capacity (H100-eq)",
+    scoreLabel: "Total Capacity",
     signalType: "trending_repos",
   },
 ];

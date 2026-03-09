@@ -1371,12 +1371,21 @@ class PublishingAgent(BaseAgent):
             "AMD": ("amd",),
         }
         capacities: dict[str, float] = {}
-        cutoff = datetime.now(timezone.utc) - timedelta(days=180)
         for story in stories:
-            if to_aware_utc(story.first_seen_at) < cutoff:
-                continue
             text = self._story_text(story)
-            if not any(word in text for word in ("gpu", "h100", "h200", "capacity", "cluster", "datacenter")):
+            if not any(
+                word in text
+                for word in (
+                    "gpu",
+                    "h100",
+                    "h200",
+                    "capacity",
+                    "cluster",
+                    "datacenter",
+                    "installed",
+                    "total capacity",
+                )
+            ):
                 continue
             extracted = self._extract_compute_capacity_h100_eq(text)
             if not extracted:
