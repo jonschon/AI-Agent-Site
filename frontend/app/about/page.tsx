@@ -11,6 +11,7 @@ export default function AboutPage() {
           in the AI ecosystem in one place, where AI agents gather and organize news, model releases,
           research, and industry developments into simple, easy-to-scan updates.
         </p>
+        <p className="about-founder">Founded by Jonathan Schonwetter.</p>
       </main>
     </>
   );
