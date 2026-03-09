@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -812,6 +813,185 @@ class RankingAgent(BaseAgent):
 class PublishingAgent(BaseAgent):
     name = "publishing"
 
+    def _story_text(self, story: Story) -> str:
+        bullets = " ".join(story.bullets_json or [])
+        return f"{story.headline} {bullets}".lower()
+
+    def _story_source_diversity(self, db: Session, story_id: int) -> int:
+        count = db.execute(
+            select(func.count(func.distinct(Source.id)))
+            .join(Article, Article.source_id == Source.id)
+            .join(StoryArticle, StoryArticle.article_id == Article.id)
+            .where(StoryArticle.story_id == story_id)
+        ).scalar_one()
+        return int(count or 0)
+
+    def _latest_signal_data(self, db: Session, signal_type: str) -> dict[str, float]:
+        row = db.execute(
+            select(Signal).where(Signal.signal_type == signal_type).order_by(desc(Signal.observed_at)).limit(1)
+        ).scalar_one_or_none()
+        if not row:
+            return {}
+        out: dict[str, float] = {}
+        for key, value in (row.value_json or {}).items():
+            try:
+                out[key] = float(value)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    def _extract_valuations_billions(self, text: str) -> list[float]:
+        values: list[float] = []
+        pattern = re.compile(r"\$?\s*(\d+(?:\.\d+)?)\s*(trillion|billion|million|t|b|m)\b", re.IGNORECASE)
+        for amount, unit in pattern.findall(text):
+            numeric = float(amount)
+            unit_norm = unit.lower()
+            if unit_norm in {"trillion", "t"}:
+                values.append(numeric * 1000.0)
+            elif unit_norm in {"billion", "b"}:
+                values.append(numeric)
+            else:
+                values.append(numeric / 1000.0)
+        return values
+
+    def _rank_entities(
+        self,
+        db: Session,
+        stories: list[Story],
+        entities: dict[str, tuple[str, ...]],
+        baseline: float,
+        mention_weight: float,
+        diversity_weight: float,
+        importance_weight: float,
+        momentum_weight: float,
+        cap: float,
+    ) -> dict[str, float]:
+        scores: dict[str, float] = {entity: baseline for entity in entities}
+        for story in stories:
+            text = self._story_text(story)
+            matched = [entity for entity, aliases in entities.items() if any(alias in text for alias in aliases)]
+            if not matched:
+                continue
+            diversity = self._story_source_diversity(db, story.id)
+            boost = (
+                mention_weight
+                + diversity_weight * diversity
+                + importance_weight * float(story.importance_score)
+                + momentum_weight * float(story.momentum_score)
+            )
+            for entity in matched:
+                scores[entity] += boost
+
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:10]
+        return {name: round(min(cap, score), 1) for name, score in ranked}
+
+    def _build_infrastructure_ranking(self, db: Session, stories: list[Story]) -> dict[str, float]:
+        entities = {
+            "NVIDIA": ("nvidia",),
+            "AWS": ("aws", "amazon web services",),
+            "Microsoft Azure": ("azure", "microsoft cloud"),
+            "Google Cloud": ("google cloud", "gcp"),
+            "CoreWeave": ("coreweave",),
+            "AMD": ("amd",),
+        }
+        return self._rank_entities(
+            db,
+            stories,
+            entities,
+            baseline=40.0,
+            mention_weight=8.0,
+            diversity_weight=2.5,
+            importance_weight=18.0,
+            momentum_weight=8.0,
+            cap=99.0,
+        )
+
+    def _build_model_builder_valuation(self, db: Session, stories: list[Story]) -> dict[str, float]:
+        entities = {
+            "OpenAI": ("openai",),
+            "Anthropic": ("anthropic",),
+            "Google DeepMind": ("deepmind",),
+            "xAI": ("xai",),
+            "Mistral": ("mistral",),
+            "Meta AI": ("meta ai", "llama"),
+        }
+        valuations: dict[str, float] = {}
+        for story in stories:
+            text = self._story_text(story)
+            if not any(word in text for word in ("valuation", "funding", "raised", "round", "investment", "tender")):
+                continue
+            extracted = self._extract_valuations_billions(text)
+            if not extracted:
+                continue
+            max_value = max(extracted)
+            for entity, aliases in entities.items():
+                if any(alias in text for alias in aliases):
+                    valuations[entity] = max(valuations.get(entity, 0.0), max_value)
+
+        if not valuations:
+            previous = self._latest_signal_data(db, "funding_tracker")
+            if previous:
+                valuations = previous
+
+        if not valuations:
+            coverage_proxy = self._rank_entities(
+                db,
+                stories,
+                entities,
+                baseline=15.0,
+                mention_weight=6.0,
+                diversity_weight=1.8,
+                importance_weight=14.0,
+                momentum_weight=6.0,
+                cap=120.0,
+            )
+            valuations = coverage_proxy
+
+        ranked = sorted(valuations.items(), key=lambda item: item[1], reverse=True)[:10]
+        return {name: round(value, 1) for name, value in ranked}
+
+    def _build_foundation_model_ranking(self, db: Session, stories: list[Story]) -> dict[str, float]:
+        entities = {
+            "GPT-4": ("gpt-4", "gpt4", "openai model"),
+            "Claude": ("claude",),
+            "Gemini": ("gemini",),
+            "Llama": ("llama",),
+            "Grok": ("grok",),
+            "Mistral Large": ("mistral large", "mistral"),
+        }
+        return self._rank_entities(
+            db,
+            stories,
+            entities,
+            baseline=52.0,
+            mention_weight=6.0,
+            diversity_weight=2.2,
+            importance_weight=14.0,
+            momentum_weight=7.0,
+            cap=98.0,
+        )
+
+    def _build_application_ranking(self, db: Session, stories: list[Story]) -> dict[str, float]:
+        entities = {
+            "ChatGPT": ("chatgpt",),
+            "Claude.ai": ("claude.ai", "claude app"),
+            "Perplexity": ("perplexity",),
+            "GitHub Copilot": ("copilot",),
+            "Cursor": ("cursor",),
+            "Midjourney": ("midjourney",),
+        }
+        return self._rank_entities(
+            db,
+            stories,
+            entities,
+            baseline=8.0,
+            mention_weight=4.0,
+            diversity_weight=1.4,
+            importance_weight=7.0,
+            momentum_weight=4.0,
+            cap=120.0,
+        )
+
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
@@ -841,11 +1021,15 @@ class PublishingAgent(BaseAgent):
                 )
                 story.last_published_at = datetime.now(timezone.utc)
 
+            infra = self._build_infrastructure_ranking(db, stories)
+            valuations = self._build_model_builder_valuation(db, stories)
+            models = self._build_foundation_model_ranking(db, stories)
+            apps = self._build_application_ranking(db, stories)
             signals = [
-                Signal(signal_type="model_activity", title="Model Activity", value_json={"items": 3}, rank=1),
-                Signal(signal_type="trending_repos", title="Trending AI Repos", value_json={"items": 5}, rank=2),
-                Signal(signal_type="funding_tracker", title="AI Funding Tracker", value_json={"items": 2}, rank=3),
-                Signal(signal_type="research_papers", title="New Research Papers", value_json={"items": 4}, rank=4),
+                Signal(signal_type="trending_repos", title="Infrastructure Leaders", value_json=infra, rank=1),
+                Signal(signal_type="funding_tracker", title="Model Builders", value_json=valuations, rank=2),
+                Signal(signal_type="model_activity", title="Foundation Models", value_json=models, rank=3),
+                Signal(signal_type="research_papers", title="Applications", value_json=apps, rank=4),
             ]
             for signal in signals:
                 db.add(signal)

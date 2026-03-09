@@ -116,22 +116,27 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
   return RANKING_CONFIGS.map((config, tableIndex) => {
     const signal = config.signalType ? byType.get(config.signalType) : undefined;
 
-    if (config.topic === "Model Builders") {
-      return {
-        topic: config.topic,
-        metric: config.metric,
-        updatedAt: signal?.observed_at ?? updatedAt,
-        rows: buildValuationRows(seed),
-      };
-    }
-
     if (signal) {
-      const suffix = config.topic === "Foundation Models" ? "%" : "";
+      const suffix =
+        config.topic === "Foundation Models" ? "%" : config.topic === "Model Builders" ? "B" : "";
+      const formattedRows = toRankingRows(signal, stats.stories_detected, suffix).map((row) => ({
+        ...row,
+        score: config.topic === "Model Builders" ? `$${row.score}` : row.score,
+      }));
       return {
         topic: config.topic,
         metric: config.metric,
         updatedAt: signal.observed_at,
-        rows: toRankingRows(signal, stats.stories_detected, suffix),
+        rows: formattedRows,
+      };
+    }
+
+    if (config.topic === "Model Builders") {
+      return {
+        topic: config.topic,
+        metric: config.metric,
+        updatedAt: updatedAt,
+        rows: buildValuationRows(seed),
       };
     }
 
