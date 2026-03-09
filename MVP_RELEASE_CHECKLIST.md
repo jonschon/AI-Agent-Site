@@ -1,54 +1,65 @@
 # MVP Release Checklist
 
 ## Goal
-Launch the MVP safely with real agent runs by using a staging-first rollout, then production promotion.
+Ship and operate the site in production with predictable behavior, clean rollback, and daily visibility.
 
-## 1. Preflight (Before Any Deploy)
-- Confirm latest branch is `main` and CI/local checks are green.
-- Run backend tests: `cd backend && PYTHONPATH=. python3 -m pytest -q`.
-- Run smoke check: `make smoke`.
-- Verify required env vars are set:
-  - `DATABASE_URL`
-  - `INTERNAL_API_KEY`
-  - `OPENAI_API_KEY` (recommended)
-  - `NEXT_PUBLIC_API_BASE`
+## Ownership Split
+- Codex-owned (in repo): tests, smoke, live API checks, docs/runbook, pipeline and safety code.
+- User-owned (Render UI): deploy clicks, env var management, scheduler setup, domain settings.
 
-## 2. Staging Deploy (Real Agents)
-- Deploy backend + frontend to staging.
-- Point frontend to staging backend (`NEXT_PUBLIC_API_BASE`).
-- Enable scheduler/autonomous cycle in staging.
-- Run one manual internal cycle after deploy:
-  - `POST /v1/internal/agents/run/all` with `x-internal-api-key`.
-- Verify endpoints:
-  - `/v1/healthz`
-  - `/v1/feed`
-  - `/v1/signals`
-  - `/v1/stats/newsroom`
+## 1. Pre-Deploy Gate (Codex-owned)
+Run from repo root:
+- `make backend-test`
+- `make smoke`
+- `API_BASE=https://<backend>.onrender.com/v1 make live-check`
 
-## 3. Staging Soak (48 Hours)
-- Confirm publish cycles are happening on schedule.
-- Confirm no sustained high-severity exceptions.
-- Check rankings and feed look reasonable (no obvious source domination bugs).
-- Check API latency and error rate are stable.
-- Confirm OpenAI usage/cost stays within expected daily budget.
+Pass criteria:
+- tests are green
+- smoke passes end-to-end
+- live `/healthz`, `/feed`, `/signals`, `/stats/newsroom` pass shape checks
 
-## 4. Production Go-Live
-- Deploy same artifact/config pattern proven in staging.
-- Run one manual post-deploy cycle.
-- Verify public endpoints and homepage rendering.
-- Confirm scheduler is running.
-- Announce go-live only after first successful publish cycle.
+## 2. Deploy (User-owned in Render)
+Backend (`ai-news-backend`):
+1. `Manual Deploy` -> `Deploy latest commit`
+2. confirm service is `Live`
 
-## 5. Rollback Plan
-- Keep previous backend/frontend release references ready.
-- Roll back immediately if any of these occur:
-  - repeated failed pipeline runs,
-  - broken feed payloads,
-  - sustained 5xx on public endpoints,
-  - runaway model API cost.
-- After rollback, disable scheduler if instability persists.
+Frontend (`ai-news-frontend`):
+1. `Manual Deploy` -> `Deploy latest commit`
+2. confirm service is `Live`
 
-## 6. Day-1 Ops Rules
-- Check `/v1/stats/newsroom` and internal policy status at least 2x daily.
-- Keep one-click command ready: `make smoke`.
-- Log incidents with timestamp, impact, and fix in `CHANGELOG_MVP.md`.
+## 3. Post-Deploy Validation (Codex-owned)
+Run:
+- `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make live-publish-check`
+
+This verifies live endpoints and triggers one publish cycle.
+
+## 4. Scheduler/Sourcing Check (User-owned + Codex verification)
+User in Render:
+1. confirm only one scheduler/cron path is active
+2. cadence: every 30-45 minutes
+
+Codex verify via API:
+- check `/v1/internal/agent-runs` for recurring crawler/normalization/publishing runs
+
+## 5. Rollback Procedure
+When to rollback immediately:
+- repeated 5xx from public endpoints
+- pipeline repeatedly stuck/failed
+- bad feed payload shape
+
+Steps:
+1. in Render, deploy previous known-good commit for backend
+2. deploy matching previous frontend commit
+3. run `API_BASE=... make live-check`
+4. trigger publish once and re-check homepage
+
+## 6. Daily Ops (Fast)
+Twice daily:
+- `API_BASE=https://<backend>.onrender.com/v1 make live-check`
+- review `/v1/internal/agent-runs` for stuck runs or repeated fails
+- spot-check top stories + leaderboard sanity
+
+## 7. Current Production Commands
+- Full local gate: `make release-gate`
+- Live check only: `API_BASE=https://<backend>.onrender.com/v1 make live-check`
+- Live check + publish trigger: `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make live-publish-check`
