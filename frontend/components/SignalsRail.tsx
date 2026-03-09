@@ -239,11 +239,6 @@ export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats
                   <td>{row.rank}</td>
                   <td>
                     <div>{row.label}</div>
-                    {row.confidence && (row.sourceCount ?? 0) > 0 ? (
-                      <div className="ranking-submeta">
-                        {row.confidence}, {row.sourceCount ?? 0} sources
-                      </div>
-                    ) : null}
                   </td>
                   <td>{row.score}</td>
                 </tr>
