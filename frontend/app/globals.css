@@ -1,17 +1,17 @@
 :root {
-  --bg: #f4f7fb;
-  --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  --text: #111827;
-  --muted: #5b6473;
-  --line: #dbe3ee;
-  --line-strong: #c8d3e2;
-  --accent: #0f6db5;
-  --accent-soft: #e6f2fc;
-  --chip: #eef3fa;
-  --rail: #f2f6fb;
-  --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.05);
-  --shadow-md: 0 10px 30px rgba(25, 44, 73, 0.07);
+  --bg: #f6f4ee;
+  --surface: #fffdf8;
+  --surface-soft: #fffaf1;
+  --text: #151515;
+  --muted: #5f5b53;
+  --line: #d8d0c2;
+  --line-strong: #c8bca8;
+  --accent: #9a2f1f;
+  --accent-soft: #ffe6cf;
+  --chip: #ece6da;
+  --rail: #f0ebe0;
+  --shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.05);
 }
 
 * {
@@ -22,9 +22,9 @@ body {
   margin: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at 14% 8%, rgba(111, 172, 226, 0.16) 0%, transparent 40%),
-    radial-gradient(circle at 88% 22%, rgba(141, 188, 131, 0.12) 0%, transparent 38%),
-    linear-gradient(180deg, #f8fbff 0%, var(--bg) 44%, #edf3fb 100%);
+    radial-gradient(circle at top right, #fbe7cf 0%, transparent 40%),
+    radial-gradient(circle at bottom left, #e8efe0 0%, transparent 35%),
+    var(--bg);
   font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
 }
 
@@ -40,13 +40,11 @@ a {
 }
 
 .header {
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(6px);
-  border-radius: 16px;
+  border-top: 2px solid #111;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
   margin-bottom: 1rem;
-  padding: 0.95rem 1rem;
-  box-shadow: var(--shadow-sm);
+  padding: 0.82rem 0 0.78rem;
 }
 
 .brand-row {
@@ -57,9 +55,9 @@ a {
 }
 
 .logo {
-  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
-  font-size: 1.5rem;
-  letter-spacing: 0.01em;
+  font-family: "Iowan Old Style", "Georgia", "Times New Roman", serif;
+  font-size: 1.62rem;
+  letter-spacing: 0;
   font-weight: 700;
 }
 
@@ -72,15 +70,14 @@ a {
 .nav a {
   font-size: 0.82rem;
   color: var(--muted);
-  padding: 0.28rem 0.52rem;
-  border-radius: 999px;
-  border: 1px solid transparent;
+  padding: 0.14rem 0.25rem;
+  border-radius: 0;
+  border-bottom: 1px solid transparent;
   transition: all 0.18s ease;
 }
 
 .nav a:hover {
-  border-color: var(--line);
-  background: #fff;
+  border-bottom-color: var(--line-strong);
   color: var(--text);
 }
 
@@ -91,22 +88,21 @@ a {
 }
 
 .feed-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 0.95rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.55rem 0 0.9rem;
   margin-bottom: 0.8rem;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
   animation: card-fade-up 0.32s ease both;
 }
 
 .feed-card.lead {
-  border-width: 1px;
-  border-color: #93b8da;
-  background:
-    linear-gradient(180deg, #fbfdff 0%, #ffffff 70%),
-    var(--surface);
-  box-shadow: var(--shadow-md);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--surface-soft);
+  padding: 0.9rem 0.75rem 1rem;
 }
 
 .badges {
@@ -119,17 +115,18 @@ a {
 .badge {
   font-size: 0.72rem;
   background: var(--accent-soft);
-  color: #0b5b97;
+  color: #6b260f;
   padding: 0.2rem 0.46rem;
-  border-radius: 999px;
-  border: 1px solid #cfe2f5;
+  border-radius: 2px;
+  border: 1px solid #f2d4b8;
 }
 
 .headline {
+  font-family: "Iowan Old Style", "Georgia", "Times New Roman", serif;
   font-weight: 700;
   margin-bottom: 0.45rem;
-  line-height: 1.28;
-  font-size: 1.03rem;
+  line-height: 1.31;
+  font-size: 1.16rem;
 }
 
 .story-link-area {
@@ -138,6 +135,9 @@ a {
 
 .story-link-area:hover .headline {
   color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
 .bullets {
@@ -164,11 +164,13 @@ a {
 
 .meta-list a:hover {
   color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .tag {
   padding: 0.18rem 0.45rem;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--chip);
   border: 1px solid var(--line);
 }
@@ -177,19 +179,20 @@ a {
   position: sticky;
   top: 0.8rem;
   height: fit-content;
-  background: var(--rail);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 0.8rem;
-  box-shadow: var(--shadow-sm);
+  background: transparent;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0 0 0 1rem;
+  box-shadow: none;
 }
 
 .widget {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0.68rem;
-  margin-bottom: 0.66rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.6rem 0;
+  margin-bottom: 0.5rem;
 }
 
 .widget h4 {
@@ -205,18 +208,18 @@ a {
 
 .filters a {
   font-size: 0.81rem;
-  padding: 0.24rem 0.52rem;
+  padding: 0.2rem 0.48rem;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 2px;
   background: #fff;
   color: #41556d;
   transition: all 0.18s ease;
 }
 
 .filters a:hover {
-  border-color: #bfd3ea;
-  color: #0f6db5;
-  background: #f7fbff;
+  border-color: #bc8f5b;
+  color: #6b260f;
+  background: #fff8ef;
 }
 
 .quick-item {
@@ -250,7 +253,7 @@ a {
 }
 
 .rankings-panel {
-  background: linear-gradient(135deg, #f3f9ff, #fff);
+  background: transparent;
 }
 
 .ranking-widget {
@@ -272,7 +275,7 @@ a {
 
 .metric-chip {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--chip);
   color: #41556d;
   font-size: 0.69rem;
@@ -302,7 +305,7 @@ a {
 }
 
 .ranking-table tbody tr:hover {
-  background: #f8fbff;
+  background: #fff8ef;
 }
 
 .ranking-table td:first-child,
@@ -353,13 +356,15 @@ a {
   .rail {
     position: static;
     background: transparent;
-    border: none;
+    border-left: none;
+    border-top: 1px solid var(--line);
     box-shadow: none;
-    padding: 0;
+    padding: 0.4rem 0 0;
   }
 
   .header {
-    border-radius: 12px;
+    border-top-width: 1px;
+    padding-top: 0.62rem;
   }
 
   .brand-row {
