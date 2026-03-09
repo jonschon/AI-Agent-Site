@@ -262,6 +262,25 @@ a {
   margin: 0 0 0.2rem;
 }
 
+.about-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.05rem 0.85rem 1.2rem;
+}
+
+.about-page h1 {
+  font-family: "Iowan Old Style", "Georgia", "Times New Roman", serif;
+  font-size: 1.68rem;
+  margin: 0 0 0.6rem;
+}
+
+.about-page p {
+  margin: 0;
+  color: #2b3440;
+  line-height: 1.6;
+  font-size: 1.01rem;
+}
+
 .feed-state-compact {
   margin-top: 0.25rem;
 }

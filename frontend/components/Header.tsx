@@ -11,6 +11,7 @@ export function Header() {
         </Link>
         <nav className="nav">
           <Link href="/">Home</Link>
+          <Link href="/about">About</Link>
           <Link href="/category/Models">Models</Link>
           <Link href="/category/Startups">Startups</Link>
           <Link href="/category/Agents">Agents</Link>
