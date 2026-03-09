@@ -38,9 +38,9 @@ a {
 
 .header {
   border-top: 2px solid #111;
-  border-bottom: 1px solid var(--line);
+  border-bottom: none;
   background: transparent;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   padding: 0.82rem 0 0;
 }
 
@@ -64,9 +64,11 @@ a {
   top: 0;
   z-index: 120;
   padding: 0.44rem 0;
+  margin-bottom: 1rem;
   background: color-mix(in srgb, var(--bg) 94%, white 6%);
   backdrop-filter: blur(6px);
   border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .logo {

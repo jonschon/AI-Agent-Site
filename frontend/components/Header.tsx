@@ -4,12 +4,14 @@ const categories = ["Top News", "Models", "Startups", "Agents", "Research", "Inf
 
 export function Header() {
   return (
-    <header className="header">
-      <div className="brand-row brand-row-static">
-        <Link href="/" className="logo">
-          SignalWire AI News
-        </Link>
-      </div>
+    <>
+      <header className="header">
+        <div className="brand-row brand-row-static">
+          <Link href="/" className="logo">
+            SignalWire AI News
+          </Link>
+        </div>
+      </header>
       <div className="sticky-nav-row">
         <div className="filters">
           {categories.map((category) => (
@@ -27,6 +29,6 @@ export function Header() {
           <Link href="/data-insights">Data Insights</Link>
         </nav>
       </div>
-    </header>
+    </>
   );
 }
