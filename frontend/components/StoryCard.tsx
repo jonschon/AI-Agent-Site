@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { normalizeExternalUrl } from "@/lib/urls";
 import { StoryCard as Story } from "@/types/news";
 
 type Props = {
@@ -16,14 +17,6 @@ export function StoryCard({ story, variant }: Props) {
     deckSource.length > 0
       ? deckSource.slice(0, deckLimit) + (deckSource.length > deckLimit ? "..." : "")
       : null;
-  const normalizeExternalUrl = (raw: string): string | null => {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
-    if (trimmed.startsWith("//")) return `https:${trimmed}`;
-    return `https://${trimmed}`;
-  };
-
   return (
     <article className={`feed-card ${variant === "lead" ? "lead" : "major"}`}>
       <div className="badges">

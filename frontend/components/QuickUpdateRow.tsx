@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { normalizeExternalUrl } from "@/lib/urls";
 import { StoryCard as Story } from "@/types/news";
 
 export function QuickUpdateRow({ story }: { story: Story }) {
@@ -16,7 +17,21 @@ export function QuickUpdateRow({ story }: { story: Story }) {
       </Link>
       <div className="quick-overview">{overview}</div>
       <div className="meta-line">
-        {story.sources.slice(0, 3).map((source) => source.source_name).join(" | ")}
+        {story.sources.slice(0, 3).map((source, index, list) => {
+          const href = normalizeExternalUrl(source.url);
+          return (
+            <span key={`${source.source_name}-${source.url}`}>
+              {href ? (
+                <a href={href} target="_blank" rel="noreferrer noopener">
+                  {source.source_name}
+                </a>
+              ) : (
+                <span>{source.source_name}</span>
+              )}
+              {index < list.length - 1 ? " | " : ""}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
