@@ -118,3 +118,27 @@ def test_leaderboard_validation_agent_drops_rows_without_evidence() -> None:
         assert len(rows) == 1
         assert rows[0]["entity"] == "ChatGPT"
         assert "Claude" not in latest.value_json
+
+
+def test_valuation_extraction_requires_context() -> None:
+    agent = PublishingAgent()
+    with_context = "OpenAI valuation reached $300 billion after a funding round."
+    without_context = "Company reported $300 billion in annual revenue."
+
+    vals_with = agent._extract_valuations_billions_with_context(with_context.lower())
+    vals_without = agent._extract_valuations_billions_with_context(without_context.lower())
+
+    assert vals_with == [300.0]
+    assert vals_without == []
+
+
+def test_outlier_guard_blocks_unconfirmed_large_jumps() -> None:
+    agent = PublishingAgent()
+    current = {"OpenAI": 1000.0, "Anthropic": 120.0}
+    previous = {"OpenAI": 300.0, "Anthropic": 60.0}
+    support = {"OpenAI": 1, "Anthropic": 2}
+
+    guarded = agent._apply_outlier_guard(current, previous, support, max_ratio=3.0)
+
+    assert guarded["OpenAI"] == 300.0
+    assert guarded["Anthropic"] == 120.0

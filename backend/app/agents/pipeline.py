@@ -986,6 +986,9 @@ class PublishingAgent(BaseAgent):
     FOUNDATION_MODEL_ENTITIES = ("GPT-4", "Claude", "Gemini", "Llama", "Grok", "Mistral Large")
     INFRA_ENTITIES = ("NVIDIA", "AWS", "Microsoft Azure", "Google Cloud", "CoreWeave", "AMD")
     APP_ENTITIES = ("ChatGPT", "Claude", "Gemini", "Perplexity", "Microsoft Copilot", "Meta AI")
+    VALUATION_CONTEXT_TERMS = ("valuation", "post-money", "pre-money", "funding", "raised", "round", "investment")
+    COMPUTE_CONTEXT_TERMS = ("capacity", "installed", "total capacity", "cluster", "datacenter", "deployment")
+    MAU_CONTEXT_TERMS = ("monthly active users", "mau", "maus")
 
     def _story_text(self, story: Story) -> str:
         bullets = " ".join(story.bullets_json or [])
@@ -1099,6 +1102,24 @@ class PublishingAgent(BaseAgent):
                 values.append(numeric / 1000.0)
         return values
 
+    def _extract_valuations_billions_with_context(self, text: str) -> list[float]:
+        values: list[float] = []
+        pattern = re.compile(r"\$?\s*(\d+(?:\.\d+)?)\s*(trillion|billion|million|t|b|m)\b", re.IGNORECASE)
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            context = text[max(0, start - 80) : min(len(text), end + 80)]
+            if not any(term in context for term in self.VALUATION_CONTEXT_TERMS):
+                continue
+            amount = float(match.group(1))
+            unit_norm = match.group(2).lower()
+            if unit_norm in {"trillion", "t"}:
+                values.append(amount * 1000.0)
+            elif unit_norm in {"billion", "b"}:
+                values.append(amount)
+            else:
+                values.append(amount / 1000.0)
+        return values
+
     def _extract_percentages(self, text: str) -> list[float]:
         values: list[float] = []
         pattern = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
@@ -1111,8 +1132,14 @@ class PublishingAgent(BaseAgent):
     def _extract_compute_capacity_h100_eq(self, text: str) -> list[float]:
         values: list[float] = []
         pattern = re.compile(r"(\d+(?:\.\d+)?)\s*(k|m)?\s*(h100|h200|gpu|gpus)\b", re.IGNORECASE)
-        for amount, magnitude, _unit in pattern.findall(text):
-            numeric = float(amount)
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            context = text[max(0, start - 80) : min(len(text), end + 80)]
+            if not any(term in context for term in self.COMPUTE_CONTEXT_TERMS):
+                continue
+            amount = float(match.group(1))
+            magnitude = match.group(2)
+            numeric = amount
             magnitude_norm = magnitude.lower() if magnitude else ""
             if magnitude_norm == "k":
                 numeric *= 1000
@@ -1144,6 +1171,26 @@ class PublishingAgent(BaseAgent):
                 else:
                     values.append(amount)
         return values
+
+    def _apply_outlier_guard(
+        self,
+        current: dict[str, float],
+        previous: dict[str, float],
+        support_counts: dict[str, int],
+        max_ratio: float = 3.0,
+    ) -> dict[str, float]:
+        guarded: dict[str, float] = {}
+        for entity, value in current.items():
+            prior = previous.get(entity)
+            if prior is None or prior <= 0:
+                guarded[entity] = value
+                continue
+            ratio = value / prior
+            if ratio > max_ratio and support_counts.get(entity, 0) < 2:
+                guarded[entity] = prior
+            else:
+                guarded[entity] = value
+        return guarded
 
     def _rank_entities(
         self,
@@ -1215,17 +1262,19 @@ class PublishingAgent(BaseAgent):
             "Meta AI": 40.0,
         }
         valuations: dict[str, float] = {}
+        support_counts: dict[str, int] = {}
         for story in stories:
             text = self._story_text(story)
-            if not any(word in text for word in ("valuation", "funding", "raised", "round", "investment", "tender")):
+            if not any(word in text for word in self.VALUATION_CONTEXT_TERMS):
                 continue
-            extracted = self._extract_valuations_billions(text)
+            extracted = self._extract_valuations_billions_with_context(text)
             if not extracted:
                 continue
             max_value = max(extracted)
             for entity, aliases in entities.items():
                 if any(alias in text for alias in aliases):
                     valuations[entity] = max(valuations.get(entity, 0.0), max_value)
+                    support_counts[entity] = support_counts.get(entity, 0) + 1
 
         if not valuations:
             previous = self._sanitize_signal_entities(
@@ -1252,6 +1301,12 @@ class PublishingAgent(BaseAgent):
         for entity, base in baseline_vals.items():
             if entity in valuations:
                 valuations[entity] = round(max(float(valuations[entity]), base), 1)
+
+        valuations = self._apply_outlier_guard(
+            valuations,
+            self._sanitize_signal_entities(self._latest_signal_data(db, "funding_tracker"), self.MODEL_BUILDER_ENTITIES),
+            support_counts,
+        )
 
         ranked = sorted(valuations.items(), key=lambda item: item[1], reverse=True)[:10]
         out = {name: round(value, 1) for name, value in ranked}
@@ -1281,9 +1336,10 @@ class PublishingAgent(BaseAgent):
             "Meta AI": 50.0,
         }
         mau: dict[str, float] = {}
+        support_counts: dict[str, int] = {}
         for story in stories:
             text = self._story_text(story)
-            if "mau" not in text and "monthly active users" not in text and "maus" not in text:
+            if not any(term in text for term in self.MAU_CONTEXT_TERMS):
                 continue
             extracted = self._extract_mau_millions(text)
             if not extracted:
@@ -1292,6 +1348,7 @@ class PublishingAgent(BaseAgent):
             for entity, aliases in entities.items():
                 if any(alias in text for alias in aliases):
                     mau[entity] = max(mau.get(entity, 0.0), max_value)
+                    support_counts[entity] = support_counts.get(entity, 0) + 1
 
         if not mau:
             previous = self._sanitize_signal_entities(
@@ -1318,6 +1375,12 @@ class PublishingAgent(BaseAgent):
         for entity, base in baseline_mau_millions.items():
             if entity in mau:
                 mau[entity] = round(max(float(mau[entity]), base), 1)
+
+        mau = self._apply_outlier_guard(
+            mau,
+            self._sanitize_signal_entities(self._latest_signal_data(db, "app_adoption"), self.APP_ENTITIES),
+            support_counts,
+        )
 
         ranked = sorted(mau.items(), key=lambda item: item[1], reverse=True)[:10]
         out = {name: round(value, 1) for name, value in ranked}
@@ -1401,21 +1464,10 @@ class PublishingAgent(BaseAgent):
             "AMD": ("amd",),
         }
         capacities: dict[str, float] = {}
+        support_counts: dict[str, int] = {}
         for story in stories:
             text = self._story_text(story)
-            if not any(
-                word in text
-                for word in (
-                    "gpu",
-                    "h100",
-                    "h200",
-                    "capacity",
-                    "cluster",
-                    "datacenter",
-                    "installed",
-                    "total capacity",
-                )
-            ):
+            if not any(term in text for term in ("gpu", "h100", "h200")):
                 continue
             extracted = self._extract_compute_capacity_h100_eq(text)
             if not extracted:
@@ -1424,6 +1476,7 @@ class PublishingAgent(BaseAgent):
             for entity, aliases in entities.items():
                 if any(alias in text for alias in aliases):
                     capacities[entity] = capacities.get(entity, 0.0) + max_value
+                    support_counts[entity] = support_counts.get(entity, 0) + 1
 
         if not capacities:
             previous = self._sanitize_signal_entities(
@@ -1446,6 +1499,12 @@ class PublishingAgent(BaseAgent):
                 capacities.setdefault(entity, defaults[entity])
                 if len(capacities) >= 3:
                     break
+
+        capacities = self._apply_outlier_guard(
+            capacities,
+            self._sanitize_signal_entities(self._latest_signal_data(db, "trending_repos"), self.INFRA_ENTITIES),
+            support_counts,
+        )
 
         ranked = sorted(capacities.items(), key=lambda item: item[1], reverse=True)[:10]
         return {name: round(value, 1) for name, value in ranked}
