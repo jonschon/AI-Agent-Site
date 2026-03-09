@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+from difflib import SequenceMatcher
 from datetime import datetime
 
 import httpx
@@ -20,13 +22,52 @@ def _deterministic_embedding(text: str, dimensions: int = 16) -> list[float]:
 def _fallback_summary(headline_seed: str, snippets: list[str], max_bullets: int = 3) -> tuple[str, list[str]]:
     max_bullets = max(1, min(max_bullets, 3))
     headline = headline_seed.strip()[:120]
-    bullets = []
+    bullets: list[str] = []
     for snippet in snippets[:max_bullets]:
         cleaned = " ".join(snippet.split())[:220]
         bullets.append(cleaned if cleaned else "Update available from monitored sources.")
-    while len(bullets) < 1:
-        bullets.append("Coverage is evolving as additional sources publish.")
-    return headline, bullets[:max_bullets]
+    return headline, _sanitize_bullets(headline, bullets, snippets, max_bullets=max_bullets)
+
+
+def _normalize_for_compare(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _near_duplicate(a: str, b: str, threshold: float = 0.78) -> bool:
+    na = _normalize_for_compare(a)
+    nb = _normalize_for_compare(b)
+    if not na or not nb:
+        return False
+    if na in nb or nb in na:
+        return True
+    return SequenceMatcher(None, na, nb).ratio() >= threshold
+
+
+def _sanitize_bullets(headline: str, bullets: list[str], snippets: list[str], max_bullets: int) -> list[str]:
+    out: list[str] = []
+    for bullet in bullets:
+        cleaned = " ".join(bullet.split())[:220]
+        if not cleaned:
+            continue
+        if _near_duplicate(cleaned, headline):
+            continue
+        if any(_near_duplicate(cleaned, existing) for existing in out):
+            continue
+        out.append(cleaned)
+        if len(out) >= max_bullets:
+            break
+
+    if not out:
+        for snippet in snippets:
+            cleaned = " ".join(snippet.split())[:220]
+            if not cleaned or _near_duplicate(cleaned, headline):
+                continue
+            out.append(cleaned)
+            break
+
+    if not out:
+        out.append("Coverage is evolving as additional sources publish.")
+    return out[:max_bullets]
 
 
 def _extract_output_text(payload: dict) -> str:
@@ -144,6 +185,7 @@ def summarize_story(headline_seed: str, snippets: list[str], max_bullets: int = 
         bullets = [str(item).strip()[:220] for item in raw_bullets if str(item).strip()]
         if not bullets:
             bullets = fallback_bullets
+        bullets = _sanitize_bullets(headline, bullets, snippets, max_bullets=max_bullets)
         return headline, bullets[:max_bullets]
     except Exception as exc:  # noqa: BLE001
         logger.warning("Summary request failed, falling back to local summary: %s", exc)

@@ -8,8 +8,29 @@ type Props = {
   variant: "lead" | "major";
 };
 
+function normalizeForCompare(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function nearDuplicate(a: string, b: string): boolean {
+  const na = normalizeForCompare(a);
+  const nb = normalizeForCompare(b);
+  if (!na || !nb) return false;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  const aWords = new Set(na.split(" "));
+  const bWords = new Set(nb.split(" "));
+  const intersection = [...aWords].filter((word) => bWords.has(word)).length;
+  const overlap = intersection / Math.max(aWords.size, bWords.size, 1);
+  return overlap >= 0.8;
+}
+
 export function StoryCard({ story, variant }: Props) {
-  const storyBullets = [...story.bullets].filter(Boolean);
+  const filteredBullets = [...story.bullets].filter((bullet) => {
+    const cleaned = bullet.trim();
+    if (!cleaned) return false;
+    return !nearDuplicate(cleaned, story.headline);
+  });
+  const storyBullets = filteredBullets.length > 0 ? filteredBullets : [...story.bullets].filter(Boolean);
   const bullets = storyBullets.slice(0, variant === "lead" ? 5 : 4);
   const deckSource = storyBullets.slice(0, variant === "lead" ? 3 : 2).join(" ");
   const deckLimit = variant === "lead" ? 460 : 320;
