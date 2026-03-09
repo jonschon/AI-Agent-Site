@@ -31,8 +31,11 @@ export function StoryCard({ story, variant }: Props) {
     return !nearDuplicate(cleaned, story.headline);
   });
   const storyBullets = filteredBullets.length > 0 ? filteredBullets : [...story.bullets].filter(Boolean);
-  const bullets = storyBullets.slice(0, variant === "lead" ? 5 : 4);
-  const deckSource = storyBullets.slice(0, variant === "lead" ? 3 : 2).join(" ");
+  const deckBulletCount = storyBullets.length > 1 ? 1 : 0;
+  const deckSource = deckBulletCount > 0 ? storyBullets.slice(0, deckBulletCount).join(" ") : "";
+  const bulletCandidates =
+    deckBulletCount > 0 ? storyBullets.slice(deckBulletCount) : [...storyBullets];
+  const bullets = bulletCandidates.slice(0, variant === "lead" ? 5 : 4);
   const deckLimit = variant === "lead" ? 460 : 320;
   const deck =
     deckSource.length > 0
