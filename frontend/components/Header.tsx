@@ -12,11 +12,6 @@ export function Header() {
         <nav className="nav">
           <Link href="/">Home</Link>
           <Link href="/about">About</Link>
-          <Link href="/category/Models">Models</Link>
-          <Link href="/category/Startups">Startups</Link>
-          <Link href="/category/Agents">Agents</Link>
-          <Link href="/category/Research">Research</Link>
-          <Link href="/category/Infrastructure">Infrastructure</Link>
         </nav>
       </div>
       <div className="filters">
