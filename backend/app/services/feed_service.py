@@ -14,6 +14,7 @@ from app.models.news import (
     ExceptionItem,
     FeedSnapshot,
     FeedSnapshotItem,
+    RawArticle,
     Signal,
     Source,
     Story,
@@ -123,6 +124,20 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         .order_by(desc(Article.published_at))
         .limit(24)
     ).all()
+    source_urls = [str(url) for _, _, _, url, _, _ in source_rows if url]
+    image_by_url: dict[str, str] = {}
+    if source_urls:
+        raw_rows = db.execute(
+            select(RawArticle.raw_url, RawArticle.payload_json).where(RawArticle.raw_url.in_(source_urls))
+        ).all()
+        for raw_url, payload_json in raw_rows:
+            if raw_url in image_by_url:
+                continue
+            if not isinstance(payload_json, dict):
+                continue
+            image_url = payload_json.get("image_url")
+            if isinstance(image_url, str) and image_url.strip():
+                image_by_url[str(raw_url)] = image_url.strip()
     now = datetime.now(timezone.utc)
     source_candidates: list[dict] = []
     for source_id, source_name, authority_score, url, published_at, cluster_confidence in source_rows:
@@ -133,6 +148,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
                 "source_id": int(source_id),
                 "source_name": str(source_name),
                 "url": str(url),
+                "image_url": image_by_url.get(str(url)),
                 "score": _source_link_score(
                     authority=float(authority_score or 0.0),
                     hours_old=hours_old,
@@ -141,6 +157,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
             }
         )
     sources = _select_story_sources(source_candidates)
+    story_image_url = next((item.get("image_url") for item in source_candidates if item.get("image_url")), None)
 
     tags_rows = db.execute(
         select(Tag.name)
@@ -169,6 +186,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         slug=story.slug,
         headline=story.headline,
         bullets=(story.bullets_json or ["Coverage is evolving as additional sources publish."])[:3],
+        image_url=story_image_url,
         tags=tags_rows,
         sources=sources,
         discussions=[DiscussionLinkOut(platform=d.platform, url=d.url) for d in discussions],

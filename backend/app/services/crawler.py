@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import hashlib
+import re
 from datetime import datetime, timezone
 from time import struct_time
 from typing import Optional
@@ -47,6 +48,67 @@ def extract_text(entry: dict) -> str:
     return " ".join(text.split())[:4000]
 
 
+def _extract_first_img_src(html: str) -> Optional[str]:
+    if not html:
+        return None
+    match = re.search(r"""<img[^>]+src=["']([^"']+)["']""", html, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def extract_image_url(entry: dict) -> Optional[str]:
+    media_content = entry.get("media_content")
+    if isinstance(media_content, list):
+        for item in media_content:
+            if isinstance(item, dict):
+                url = item.get("url")
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
+
+    media_thumbnail = entry.get("media_thumbnail")
+    if isinstance(media_thumbnail, list):
+        for item in media_thumbnail:
+            if isinstance(item, dict):
+                url = item.get("url")
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
+
+    links = entry.get("links")
+    if isinstance(links, list):
+        for item in links:
+            if not isinstance(item, dict):
+                continue
+            href = item.get("href")
+            link_type = (item.get("type") or "").lower()
+            if isinstance(href, str) and href.strip() and link_type.startswith("image/"):
+                return href.strip()
+
+    if isinstance(entry.get("image"), dict):
+        href = entry["image"].get("href")
+        if isinstance(href, str) and href.strip():
+            return href.strip()
+
+    content_items = entry.get("content")
+    if isinstance(content_items, list):
+        for content in content_items:
+            if not isinstance(content, dict):
+                continue
+            value = content.get("value")
+            if isinstance(value, str):
+                img = _extract_first_img_src(value)
+                if img:
+                    return img
+
+    summary = entry.get("summary") or entry.get("description") or ""
+    if isinstance(summary, str):
+        img = _extract_first_img_src(summary)
+        if img:
+            return img
+
+    return None
+
+
 def fetch_feed_entries(source: Source, limit: int = 20) -> list[dict]:
     config = source.crawl_config_json or {}
     feed_urls = config.get("feed_urls") or []
@@ -68,6 +130,7 @@ def fetch_feed_entries(source: Source, limit: int = 20) -> list[dict]:
                     "url": canonical_url,
                     "title": (item.get("title") or "Untitled")[:300],
                     "content": text,
+                    "image_url": extract_image_url(item),
                     "published_at": published.isoformat(),
                     "fingerprint": hashlib.sha256((canonical_url + text[:500]).encode("utf-8")).hexdigest(),
                     "feed_url": feed_url,
@@ -84,6 +147,7 @@ def build_synthetic_entry(source: Source) -> dict:
         "url": f"https://{source.domain}/news/{url_hash}",
         "title": title,
         "content": title,
+        "image_url": None,
         "published_at": now.isoformat(),
         "fingerprint": hashlib.sha256(title.encode("utf-8")).hexdigest(),
         "feed_url": None,

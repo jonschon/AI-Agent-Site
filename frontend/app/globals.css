@@ -143,6 +143,7 @@ a {
 
 .story-link-area {
   display: block;
+  min-width: 0;
 }
 
 .story-link-area:hover .headline {
@@ -150,6 +151,30 @@ a {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
+}
+
+.story-main {
+  display: block;
+}
+
+.story-main.with-image {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 0.95rem;
+  align-items: start;
+}
+
+.story-image-wrap {
+  display: block;
+}
+
+.story-image {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #ecebe7;
 }
 
 .bullets {
@@ -452,5 +477,13 @@ a {
   .brand-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .story-main.with-image {
+    grid-template-columns: 1fr;
+  }
+
+  .story-image {
+    max-width: 420px;
   }
 }

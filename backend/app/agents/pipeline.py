@@ -227,6 +227,7 @@ class CrawlerAgent(BaseAgent):
                         payload_json={
                             "title": entry["title"],
                             "content": entry["content"],
+                            "image_url": entry.get("image_url"),
                             "published_at": entry["published_at"],
                             "fingerprint": entry["fingerprint"],
                             "feed_url": entry["feed_url"],

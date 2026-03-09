@@ -20,6 +20,7 @@ EXPECTED_STORY_KEYS = {
     "slug",
     "headline",
     "bullets",
+    "image_url",
     "tags",
     "sources",
     "discussions",
@@ -46,6 +47,7 @@ def _assert_story_shape(story: dict) -> None:
     assert isinstance(story["bullets"], list)
     assert 1 <= len(story["bullets"]) <= 3
     assert all(isinstance(item, str) for item in story["bullets"])
+    assert story["image_url"] is None or isinstance(story["image_url"], str)
     assert isinstance(story["tags"], list)
     assert isinstance(story["sources"], list)
     assert isinstance(story["discussions"], list)

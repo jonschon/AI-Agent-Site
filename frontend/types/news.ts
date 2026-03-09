@@ -13,6 +13,7 @@ export type StoryCard = {
   slug: string;
   headline: string;
   bullets: string[];
+  image_url?: string | null;
   tags: string[];
   sources: SourceLink[];
   discussions: DiscussionLink[];

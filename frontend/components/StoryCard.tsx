@@ -17,6 +17,8 @@ export function StoryCard({ story, variant }: Props) {
     deckSource.length > 0
       ? deckSource.slice(0, deckLimit) + (deckSource.length > deckLimit ? "..." : "")
       : null;
+  const imageHref = normalizeExternalUrl(story.image_url || "");
+  const showTopImage = (variant === "lead" || variant === "major") && !!imageHref;
   return (
     <article className={`feed-card ${variant === "lead" ? "lead" : "major"}`}>
       <div className="badges">
@@ -26,15 +28,22 @@ export function StoryCard({ story, variant }: Props) {
           </span>
         ))}
       </div>
-      <Link href={`/story/${story.slug}`} className="story-link-area">
-        <div className="headline">{story.headline}</div>
-        {deck && <p className="story-deck">{deck}</p>}
-        <ul className="bullets">
-          {bullets.map((bullet, index) => (
-            <li key={`${story.id}-${index}`}>{bullet}</li>
-          ))}
-        </ul>
-      </Link>
+      <div className={`story-main ${showTopImage ? "with-image" : ""}`}>
+        <Link href={`/story/${story.slug}`} className="story-link-area">
+          <div className="headline">{story.headline}</div>
+          {deck && <p className="story-deck">{deck}</p>}
+          <ul className="bullets">
+            {bullets.map((bullet, index) => (
+              <li key={`${story.id}-${index}`}>{bullet}</li>
+            ))}
+          </ul>
+        </Link>
+        {showTopImage && imageHref && (
+          <Link href={`/story/${story.slug}`} className="story-image-wrap" aria-label={`${story.headline} image`}>
+            <img src={imageHref} alt={story.headline} className="story-image" loading="lazy" />
+          </Link>
+        )}
+      </div>
       <div className="meta-line">
         <strong>Sources</strong>{" "}
         <span className="meta-list">
