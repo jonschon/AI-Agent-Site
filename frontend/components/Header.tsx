@@ -12,6 +12,7 @@ export function Header() {
         <nav className="nav">
           <Link href="/">Home</Link>
           <Link href="/about">About</Link>
+          <Link href="/data-insights">Data Insights</Link>
         </nav>
       </div>
       <div className="filters">
