@@ -704,6 +704,8 @@ class SummarizationTaggingAgent(BaseAgent):
 
 class RankingAgent(BaseAgent):
     name = "ranking"
+    LEAD_MAX_HOURS = 24.0
+    MAJOR_MAX_HOURS = 48.0
 
     def _to_aware_utc(self, dt: datetime) -> datetime:
         if dt.tzinfo is None:
@@ -728,6 +730,15 @@ class RankingAgent(BaseAgent):
         diversity = len(authority_by_source)
         avg_authority = sum(authority_by_source.values()) / diversity if diversity else 0.0
         return diversity, avg_authority
+
+    def _story_hours_old(self, db: Session, story: Story, now: datetime) -> float:
+        latest_article = db.execute(
+            select(func.max(Article.published_at))
+            .join(StoryArticle, StoryArticle.article_id == Article.id)
+            .where(StoryArticle.story_id == story.id)
+        ).scalar_one_or_none()
+        reference = latest_article or story.last_updated_at or story.first_seen_at
+        return max(0.0, (now - self._to_aware_utc(reference)).total_seconds() / 3600.0)
 
     def _discussion_velocity(self, db: Session, story_id: int) -> float:
         recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -886,10 +897,12 @@ class RankingAgent(BaseAgent):
             stories = db.execute(select(Story).where(Story.status == StoryStatus.active)).scalars().all()
             now = datetime.now(timezone.utc)
             story_diversity: dict[int, int] = {}
+            story_hours_old: dict[int, float] = {}
             for story in stories:
                 diversity, avg_authority = self._source_signal(db, story.id)
                 story_diversity[story.id] = diversity
-                hours_old = (now - self._to_aware_utc(story.first_seen_at)).total_seconds() / 3600
+                hours_old = self._story_hours_old(db, story, now)
+                story_hours_old[story.id] = hours_old
                 discussion_velocity = self._discussion_velocity(db, story.id)
                 entity_weight = self._entity_weight(db, story.id)
                 previous = story.importance_score
@@ -913,6 +926,7 @@ class RankingAgent(BaseAgent):
             major_count = 0
             for story in ordered:
                 diversity = story_diversity.get(story.id, 0)
+                hours_old = story_hours_old.get(story.id, 0.0)
                 if not lead_assigned and diversity >= settings.ranking_lead_min_source_diversity:
                     story.tier = StoryTier.lead
                     lead_assigned = True
@@ -921,6 +935,12 @@ class RankingAgent(BaseAgent):
                     story.tier = StoryTier.major
                     major_count += 1
                 else:
+                    story.tier = StoryTier.quick
+
+                # Hard freshness gates for top tiers.
+                if story.tier == StoryTier.lead and hours_old > self.LEAD_MAX_HOURS:
+                    story.tier = StoryTier.major
+                if story.tier == StoryTier.major and hours_old > self.MAJOR_MAX_HOURS:
                     story.tier = StoryTier.quick
 
                 retained = apply_retention_tier(story)
