@@ -34,6 +34,10 @@ export default async function HomePage() {
                 feed.quick_updates.map((story) => <QuickUpdateRow key={story.id} story={story} />)
               )}
             </section>
+            <section className="feed-card sponsored-card">
+              <h3>Sponsored Posts</h3>
+              <p className="meta-line">Coming Soon</p>
+            </section>
           </section>
           <SignalsRail signals={signals} stats={stats} />
         </main>
