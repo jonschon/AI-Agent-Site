@@ -39,13 +39,9 @@ a {
 .header {
   border-top: 2px solid #111;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 94%, white 6%);
-  backdrop-filter: blur(6px);
+  background: transparent;
   margin-bottom: 1rem;
-  padding: 0.82rem 0 0.78rem;
-  position: sticky;
-  top: 0;
-  z-index: 120;
+  padding: 0.82rem 0 0;
 }
 
 .brand-row {
@@ -53,6 +49,24 @@ a {
   gap: 1rem;
   align-items: center;
   justify-content: space-between;
+}
+
+.brand-row-static {
+  margin-bottom: 0.72rem;
+}
+
+.sticky-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  position: sticky;
+  top: 0;
+  z-index: 120;
+  padding: 0.44rem 0;
+  background: color-mix(in srgb, var(--bg) 94%, white 6%);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid var(--line);
 }
 
 .logo {
@@ -231,7 +245,7 @@ a {
 
 .rail {
   position: sticky;
-  top: 6.2rem;
+  top: 3.2rem;
   height: fit-content;
   background: transparent;
   border-left: 1px solid var(--line);
@@ -257,7 +271,7 @@ a {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-top: 0.7rem;
+  margin-top: 0;
 }
 
 .filters a {
@@ -481,6 +495,16 @@ a {
   .brand-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .sticky-nav-row {
+    position: static;
+    background: transparent;
+    backdrop-filter: none;
+    border-top: none;
+    padding: 0;
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .story-main.with-image {
