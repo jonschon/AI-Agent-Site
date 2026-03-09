@@ -995,6 +995,15 @@ class PublishingAgent(BaseAgent):
         ).scalar_one()
         return int(count or 0)
 
+    def _story_source_ids(self, db: Session, story_id: int) -> set[int]:
+        rows = db.execute(
+            select(func.distinct(Source.id))
+            .join(Article, Article.source_id == Source.id)
+            .join(StoryArticle, StoryArticle.article_id == Article.id)
+            .where(StoryArticle.story_id == story_id)
+        ).all()
+        return {int(row[0]) for row in rows if row and row[0] is not None}
+
     def _latest_signal_data(self, db: Session, signal_type: str) -> dict[str, float]:
         row = db.execute(
             select(Signal).where(Signal.signal_type == signal_type).order_by(desc(Signal.observed_at)).limit(1)
@@ -1012,6 +1021,34 @@ class PublishingAgent(BaseAgent):
     def _sanitize_signal_entities(self, data: dict[str, float], allowed_entities: tuple[str, ...]) -> dict[str, float]:
         allowed = set(allowed_entities)
         return {key: value for key, value in data.items() if key in allowed}
+
+    def _build_signal_payload_with_rows(self, db: Session, stories: list[Story], values: dict[str, float]) -> dict[str, object]:
+        story_source_cache: dict[int, set[int]] = {}
+        rows: list[dict[str, object]] = []
+        for entity, value in sorted(values.items(), key=lambda item: item[1], reverse=True):
+            normalized = entity.lower()
+            sources: set[int] = set()
+            for story in stories:
+                text = self._story_text(story)
+                if normalized not in text:
+                    continue
+                if story.id not in story_source_cache:
+                    story_source_cache[story.id] = self._story_source_ids(db, story.id)
+                sources.update(story_source_cache[story.id])
+            source_count = len(sources)
+            confidence = "high" if source_count >= 3 else "medium" if source_count >= 2 else "estimated"
+            rows.append(
+                {
+                    "entity": entity,
+                    "value": round(float(value), 1),
+                    "confidence": confidence,
+                    "source_count": source_count,
+                }
+            )
+
+        payload: dict[str, object] = {key: round(float(value), 1) for key, value in values.items()}
+        payload["rows"] = rows
+        return payload
 
     def _extract_valuations_billions(self, text: str) -> list[float]:
         values: list[float] = []
@@ -1403,10 +1440,30 @@ class PublishingAgent(BaseAgent):
             models = self._build_foundation_model_gpqa(db, stories)
             mau = self._build_app_mau(db, stories)
             signals = [
-                Signal(signal_type="app_adoption", title="Monthly Active Users", value_json=mau, rank=1),
-                Signal(signal_type="model_activity", title="Foundation Models", value_json=models, rank=2),
-                Signal(signal_type="funding_tracker", title="Model Builders", value_json=valuations, rank=3),
-                Signal(signal_type="trending_repos", title="Infrastructure Leaders", value_json=infra, rank=4),
+                Signal(
+                    signal_type="app_adoption",
+                    title="Monthly Active Users",
+                    value_json=self._build_signal_payload_with_rows(db, stories, mau),
+                    rank=1,
+                ),
+                Signal(
+                    signal_type="model_activity",
+                    title="Foundation Models",
+                    value_json=self._build_signal_payload_with_rows(db, stories, models),
+                    rank=2,
+                ),
+                Signal(
+                    signal_type="funding_tracker",
+                    title="Model Builders",
+                    value_json=self._build_signal_payload_with_rows(db, stories, valuations),
+                    rank=3,
+                ),
+                Signal(
+                    signal_type="trending_repos",
+                    title="Infrastructure Leaders",
+                    value_json=self._build_signal_payload_with_rows(db, stories, infra),
+                    rank=4,
+                ),
             ]
             for signal in signals:
                 db.add(signal)

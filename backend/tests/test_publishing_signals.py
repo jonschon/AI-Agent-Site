@@ -46,3 +46,26 @@ def test_funding_tracker_ignores_non_entity_keys_from_previous_signal() -> None:
         assert "items" not in builders
         assert "OpenAI" in builders
         assert builders["OpenAI"] >= 300.0
+
+
+def test_signal_payload_includes_rows_with_confidence_and_source_count() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    agent = PublishingAgent()
+
+    with Session(engine) as db:
+        payload = agent._build_signal_payload_with_rows(
+            db,
+            [],
+            {
+                "OpenAI": 300.0,
+                "Anthropic": 60.0,
+            },
+        )
+        rows = payload.get("rows")
+        assert isinstance(rows, list)
+        assert len(rows) == 2
+        first = rows[0]
+        assert isinstance(first, dict)
+        assert "confidence" in first
+        assert "source_count" in first

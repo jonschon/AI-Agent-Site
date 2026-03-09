@@ -442,6 +442,13 @@ a {
   overflow-wrap: anywhere;
 }
 
+.ranking-submeta {
+  margin-top: 0.1rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
 .ranking-table td:last-child,
 .ranking-table th:last-child {
   width: 4.3rem;

@@ -4,6 +4,8 @@ type RankingRow = {
   rank: number;
   label: string;
   score: string;
+  confidence?: string;
+  sourceCount?: number;
 };
 
 type RankingTable = {
@@ -96,6 +98,48 @@ function isEntityKey(key: string): boolean {
 }
 
 function toRankingRows(signal: SignalWidget, scoreSuffix?: string, scorePrefix?: string): RankingRow[] {
+  const structuredRows = signal.data["rows"];
+  if (Array.isArray(structuredRows)) {
+    type ParsedStructuredRow = {
+      label: string;
+      numeric: number;
+      confidence: string | undefined;
+      sourceCount: number;
+    };
+    const parsed = structuredRows
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const row = item as Record<string, unknown>;
+        const labelRaw = row["entity"];
+        const valueRaw = row["value"];
+        const confidenceRaw = row["confidence"];
+        const sourceCountRaw = row["source_count"];
+        if (typeof labelRaw !== "string") return null;
+        const numeric = numberFromSignal(valueRaw);
+        if (numeric === null) return null;
+        return {
+          label: labelRaw,
+          numeric,
+          confidence: typeof confidenceRaw === "string" ? confidenceRaw : undefined,
+          sourceCount: typeof sourceCountRaw === "number" && Number.isFinite(sourceCountRaw) ? sourceCountRaw : 0,
+        };
+      })
+      .filter((entry): entry is ParsedStructuredRow => !!entry);
+
+    if (parsed.length > 0) {
+      return parsed
+        .sort((a, b) => b.numeric - a.numeric)
+        .slice(0, 10)
+        .map((entry, index) => ({
+          rank: index + 1,
+          label: entry.label,
+          score: `${scorePrefix ?? ""}${String(entry.numeric)}${scoreSuffix ?? ""}`,
+          confidence: entry.confidence,
+          sourceCount: entry.sourceCount,
+        }));
+    }
+  }
+
   const entries = Object.entries(signal.data)
     .filter(([key, value]) => isEntityKey(key) && (typeof value === "number" || typeof value === "string"))
     .map(([key, value]) => {
@@ -193,7 +237,14 @@ export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats
               {table.rows.map((row) => (
                 <tr key={`${table.topic}-${row.rank}-${row.label}`}>
                   <td>{row.rank}</td>
-                  <td>{row.label}</td>
+                  <td>
+                    <div>{row.label}</div>
+                    {row.confidence ? (
+                      <div className="ranking-submeta">
+                        {row.confidence}, {row.sourceCount ?? 0} sources
+                      </div>
+                    ) : null}
+                  </td>
                   <td>{row.score}</td>
                 </tr>
               ))}
