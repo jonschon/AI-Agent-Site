@@ -1110,7 +1110,7 @@ class PublishingAgent(BaseAgent):
             "Meta AI": ("meta ai", "llama"),
         }
         baseline_vals = {
-            "OpenAI": 250.0,
+            "OpenAI": 300.0,
             "Anthropic": 60.0,
             "Google DeepMind": 50.0,
             "xAI": 45.0,
@@ -1151,6 +1151,10 @@ class PublishingAgent(BaseAgent):
                 for entity, base in baseline_vals.items():
                     boost = min(30.0, float(mentions.get(entity, 0.0)) * 0.35)
                     valuations[entity] = round(base + boost, 1)
+
+        for entity, base in baseline_vals.items():
+            if entity in valuations:
+                valuations[entity] = round(max(float(valuations[entity]), base), 1)
 
         ranked = sorted(valuations.items(), key=lambda item: item[1], reverse=True)[:10]
         out = {name: round(value, 1) for name, value in ranked}

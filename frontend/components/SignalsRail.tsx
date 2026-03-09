@@ -9,6 +9,7 @@ type RankingRow = {
 type RankingTable = {
   topic: string;
   metric: string;
+  scoreLabel: string;
   updatedAt?: string;
   rows: RankingRow[];
 };
@@ -16,6 +17,9 @@ type RankingTable = {
 type RankingConfig = {
   topic: string;
   metric: string;
+  scoreLabel: string;
+  scoreSuffix?: string;
+  scorePrefix?: string;
   signalType?: string;
 };
 
@@ -23,16 +27,22 @@ const RANKING_CONFIGS: RankingConfig[] = [
   {
     topic: "Foundation Models",
     metric: "GPQA accuracy (%)",
+    scoreLabel: "GPQA (%)",
+    scoreSuffix: "%",
     signalType: "model_activity",
   },
   {
     topic: "Model Builders",
     metric: "Implied valuation (post-money)",
+    scoreLabel: "Valuation",
+    scoreSuffix: "B",
+    scorePrefix: "$",
     signalType: "funding_tracker",
   },
   {
     topic: "Infrastructure Leaders",
     metric: "Announced AI compute capacity added (180d, H100-eq)",
+    scoreLabel: "Capacity",
     signalType: "trending_repos",
   },
 ];
@@ -78,7 +88,7 @@ function isEntityKey(key: string): boolean {
   return /[a-z]/i.test(normalized);
 }
 
-function toRankingRows(signal: SignalWidget, scoreSuffix?: string): RankingRow[] {
+function toRankingRows(signal: SignalWidget, scoreSuffix?: string, scorePrefix?: string): RankingRow[] {
   const entries = Object.entries(signal.data)
     .filter(([key, value]) => isEntityKey(key) && (typeof value === "number" || typeof value === "string"))
     .map(([key, value]) => {
@@ -97,7 +107,7 @@ function toRankingRows(signal: SignalWidget, scoreSuffix?: string): RankingRow[]
       .map((entry, index) => ({
         rank: index + 1,
         label: entry.label,
-        score: `${String(entry.numeric)}${scoreSuffix ?? ""}`,
+        score: `${scorePrefix ?? ""}${String(entry.numeric)}${scoreSuffix ?? ""}`,
       }));
   }
   return [];
@@ -125,15 +135,11 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
     const signal = config.signalType ? byType.get(config.signalType) : undefined;
 
     if (signal) {
-      const suffix =
-        config.topic === "Foundation Models" ? "%" : config.topic === "Model Builders" ? "B" : "";
-      const formattedRows = toRankingRows(signal, suffix).map((row) => ({
-        ...row,
-        score: config.topic === "Model Builders" ? `$${row.score}` : row.score,
-      }));
+      const formattedRows = toRankingRows(signal, config.scoreSuffix, config.scorePrefix);
       return {
         topic: config.topic,
         metric: config.metric,
+        scoreLabel: config.scoreLabel,
         updatedAt: signal.observed_at,
         rows:
           formattedRows.length > 0
@@ -145,6 +151,7 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
     return {
       topic: config.topic,
       metric: config.metric,
+      scoreLabel: config.scoreLabel,
       updatedAt,
       rows: [{ rank: 1, label: "Insufficient public data", score: "n/a" }],
     };
@@ -172,7 +179,7 @@ export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats
               <tr>
                 <th>Rank</th>
                 <th>Entity</th>
-                <th>Score</th>
+                <th>{table.scoreLabel}</th>
               </tr>
             </thead>
             <tbody>

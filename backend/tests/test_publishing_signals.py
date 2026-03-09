@@ -43,3 +43,4 @@ def test_funding_tracker_ignores_non_entity_keys_from_previous_signal() -> None:
         builders = agent._build_model_builder_valuation(db, [])
         assert "items" not in builders
         assert "OpenAI" in builders
+        assert builders["OpenAI"] >= 300.0

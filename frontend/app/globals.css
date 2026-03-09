@@ -248,7 +248,9 @@ a {
 .rail {
   position: sticky;
   top: 3.2rem;
-  height: fit-content;
+  max-height: calc(100vh - 3.8rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: transparent;
   border-left: 1px solid var(--line);
   border-radius: 0;
