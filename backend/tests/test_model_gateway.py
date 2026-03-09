@@ -32,3 +32,31 @@ def test_summary_respects_requested_bullet_cap(monkeypatch) -> None:
         max_bullets=2,
     )
     assert len(bullets) == 2
+
+
+def test_summary_injects_relevance_bullet_when_missing(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", None)
+    _, bullets = summarize_story(
+        "Apple iOS 17 update ships now",
+        [
+            "The update improves settings pages and lock screen widgets.",
+            "Rollout begins this week.",
+        ],
+        max_bullets=2,
+    )
+    assert len(bullets) == 2
+    assert any("tech relevance:" in bullet.lower() for bullet in bullets)
+
+
+def test_summary_keeps_existing_relevance_bullet(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", None)
+    _, bullets = summarize_story(
+        "Apple Intelligence update expands AI tools",
+        [
+            "Apple announced AI features for developers with new APIs.",
+            "Rollout includes model tooling on device.",
+        ],
+        max_bullets=2,
+    )
+    assert len(bullets) == 2
+    assert any(any(term in bullet.lower() for term in ("ai", "api", "model")) for bullet in bullets)

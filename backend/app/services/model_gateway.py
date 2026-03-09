@@ -13,6 +13,28 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+RELEVANCE_KEYWORDS = (
+    "ai",
+    "agent",
+    "agentic",
+    "model",
+    "llm",
+    "inference",
+    "gpu",
+    "chip",
+    "cloud",
+    "api",
+    "developer",
+    "platform",
+    "software",
+    "data",
+    "security",
+    "infrastructure",
+    "research",
+    "technology",
+    "tech",
+)
+
 
 def _deterministic_embedding(text: str, dimensions: int = 16) -> list[float]:
     digest = hashlib.sha256(text.encode("utf-8")).digest()
@@ -67,7 +89,37 @@ def _sanitize_bullets(headline: str, bullets: list[str], snippets: list[str], ma
 
     if not out:
         out.append("Coverage is evolving as additional sources publish.")
-    return out[:max_bullets]
+    return _ensure_relevance_bullet(headline, out[:max_bullets], snippets, max_bullets=max_bullets)
+
+
+def _contains_relevance_signal(text: str) -> bool:
+    lower = text.lower()
+    return any(keyword in lower for keyword in RELEVANCE_KEYWORDS)
+
+
+def _ensure_relevance_bullet(headline: str, bullets: list[str], snippets: list[str], max_bullets: int) -> list[str]:
+    if any(_contains_relevance_signal(bullet) for bullet in bullets):
+        return bullets[:max_bullets]
+
+    for snippet in snippets:
+        cleaned = " ".join(snippet.split())[:220]
+        if not cleaned:
+            continue
+        if not _contains_relevance_signal(cleaned):
+            continue
+        if any(_near_duplicate(cleaned, existing) for existing in bullets):
+            continue
+        candidate = cleaned
+        break
+    else:
+        candidate = f"Tech relevance: {headline.strip()[:170]}."
+
+    if len(bullets) < max_bullets:
+        bullets.append(candidate)
+        return bullets[:max_bullets]
+
+    bullets[-1] = candidate
+    return bullets[:max_bullets]
 
 
 def _extract_output_text(payload: dict) -> str:
