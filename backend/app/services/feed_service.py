@@ -120,6 +120,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         select(
             Source.id,
             Source.name,
+            Source.domain,
             Source.authority_score,
             Article.canonical_url,
             Article.published_at,
@@ -131,7 +132,7 @@ def _story_card(db: Session, story: Story) -> StoryCard:
         .order_by(desc(Article.published_at))
         .limit(24)
     ).all()
-    source_urls = [str(url) for _, _, _, url, _, _ in source_rows if url]
+    source_urls = [str(url) for _, _, _, _, url, _, _ in source_rows if url]
     image_by_url: dict[str, str] = {}
     if source_urls:
         raw_rows = db.execute(
@@ -147,16 +148,18 @@ def _story_card(db: Session, story: Story) -> StoryCard:
                 image_by_url[str(raw_url)] = image_url.strip()
     now = datetime.now(timezone.utc)
     source_candidates: list[dict] = []
-    for source_id, source_name, authority_score, url, published_at, cluster_confidence in source_rows:
+    for source_id, source_name, source_domain, authority_score, url, published_at, cluster_confidence in source_rows:
         if _is_synthetic_story_url(str(url)):
             continue
         published = _to_aware_utc(published_at)
         hours_old = (now - published).total_seconds() / 3600
+        fallback_home = f"https://{str(source_domain).strip()}" if source_domain else ""
         source_candidates.append(
             {
                 "source_id": int(source_id),
                 "source_name": str(source_name),
                 "url": str(url),
+                "fallback_url": fallback_home,
                 "image_url": image_by_url.get(str(url)),
                 "score": _source_link_score(
                     authority=float(authority_score or 0.0),
@@ -166,6 +169,20 @@ def _story_card(db: Session, story: Story) -> StoryCard:
             }
         )
     sources = _select_story_sources(source_candidates)
+    if not sources and source_candidates:
+        seen_source_ids: set[int] = set()
+        fallback_sources: list[SourceLink] = []
+        for item in sorted(source_candidates, key=lambda row: row["score"], reverse=True):
+            if item["source_id"] in seen_source_ids:
+                continue
+            fallback_url = str(item.get("fallback_url") or "").strip()
+            if not fallback_url:
+                continue
+            fallback_sources.append(SourceLink(source_name=str(item["source_name"]), url=fallback_url))
+            seen_source_ids.add(int(item["source_id"]))
+            if len(fallback_sources) >= 3:
+                break
+        sources = fallback_sources
     image_candidate = next((item for item in source_candidates if item.get("image_url")), None)
     story_image_url = image_candidate.get("image_url") if image_candidate else None
     image_source = (
