@@ -915,7 +915,8 @@ class RankingAgent(BaseAgent):
                 if not lead_assigned and diversity >= settings.ranking_lead_min_source_diversity:
                     story.tier = StoryTier.lead
                     lead_assigned = True
-                elif major_count < 5:
+                # Target ~10 top stories total on the homepage (1 lead + up to 9 major).
+                elif major_count < 9:
                     story.tier = StoryTier.major
                     major_count += 1
                 else:
