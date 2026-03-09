@@ -1,4 +1,4 @@
-.PHONY: smoke backend-test live-check live-publish-check release-gate
+.PHONY: smoke backend-test live-check live-publish-check daily-ops-check release-gate
 
 smoke:
 	./scripts/smoke_mvp.sh
@@ -11,6 +11,9 @@ live-check:
 
 live-publish-check:
 	TRIGGER_PUBLISH=1 ./scripts/live_check.sh
+
+daily-ops-check:
+	./scripts/daily_ops_check.sh
 
 release-gate:
 	$(MAKE) backend-test

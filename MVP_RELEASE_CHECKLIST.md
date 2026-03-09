@@ -54,12 +54,22 @@ Steps:
 4. trigger publish once and re-check homepage
 
 ## 6. Daily Ops (Fast)
-Twice daily:
-- `API_BASE=https://<backend>.onrender.com/v1 make live-check`
-- review `/v1/internal/agent-runs` for stuck runs or repeated fails
-- spot-check top stories + leaderboard sanity
+Run at least twice daily:
+- `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make daily-ops-check`
 
-## 7. Current Production Commands
+This command will:
+- run live endpoint checks
+- trigger publishing
+- trigger leaderboard validation
+- print leaderboard row counts
+
+## 7. Suggested Daily Automation (User-owned)
+Set one daily reminder/automation at a fixed time (example: 09:00 ET):
+- Command: `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make daily-ops-check`
+- If it fails, run one manual rerun and check Render service logs.
+
+## 8. Current Production Commands
 - Full local gate: `make release-gate`
 - Live check only: `API_BASE=https://<backend>.onrender.com/v1 make live-check`
 - Live check + publish trigger: `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make live-publish-check`
+- Daily ops check: `API_BASE=https://<backend>.onrender.com/v1 INTERNAL_API_KEY=<key> make daily-ops-check`
