@@ -18,7 +18,7 @@ export function StoryCard({ story, variant }: Props) {
   };
 
   return (
-    <article className={`feed-card ${variant === "lead" ? "lead" : ""}`}>
+    <article className={`feed-card ${variant === "lead" ? "lead" : "major"}`}>
       <div className="badges">
         {story.badges.map((badge) => (
           <span key={badge} className="badge">

@@ -22,7 +22,7 @@ def _fallback_summary(headline_seed: str, snippets: list[str], max_bullets: int 
     headline = headline_seed.strip()[:120]
     bullets = []
     for snippet in snippets[:max_bullets]:
-        cleaned = " ".join(snippet.split())[:140]
+        cleaned = " ".join(snippet.split())[:220]
         bullets.append(cleaned if cleaned else "Update available from monitored sources.")
     while len(bullets) < 1:
         bullets.append("Coverage is evolving as additional sources publish.")
@@ -95,7 +95,7 @@ def summarize_story(headline_seed: str, snippets: list[str], max_bullets: int = 
         "Return JSON with keys: headline, bullets.\n"
         "Requirements:\n"
         "- headline: concise, factual, <= 120 chars\n"
-        f"- bullets: array of 1 to {max_bullets} concise bullets, each <= 140 chars\n"
+        f"- bullets: array of 1 to {max_bullets} concise bullets, each <= 220 chars\n"
         "- avoid speculation and marketing language\n\n"
         f"Headline seed: {headline_seed}\n"
         "Snippets:\n"
@@ -141,7 +141,7 @@ def summarize_story(headline_seed: str, snippets: list[str], max_bullets: int = 
         parsed = json.loads(raw_text)
         headline = str(parsed.get("headline", "")).strip()[:120] or fallback_headline
         raw_bullets = parsed.get("bullets") or []
-        bullets = [str(item).strip()[:140] for item in raw_bullets if str(item).strip()]
+        bullets = [str(item).strip()[:220] for item in raw_bullets if str(item).strip()]
         if not bullets:
             bullets = fallback_bullets
         return headline, bullets[:max_bullets]
