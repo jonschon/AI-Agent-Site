@@ -1429,6 +1429,18 @@ class PublishingAgent(BaseAgent):
                 .order_by(desc(Story.importance_score), desc(Story.last_updated_at))
                 .limit(30)
             ).scalars().all()
+            leaderboard_cutoff = datetime.now(timezone.utc) - timedelta(days=settings.leaderboard_lookback_days)
+            leaderboard_stories = db.execute(
+                select(Story)
+                .where(
+                    Story.last_updated_at >= leaderboard_cutoff,
+                    Story.status.in_([StoryStatus.active, StoryStatus.archived]),
+                )
+                .order_by(desc(Story.last_updated_at))
+                .limit(settings.leaderboard_story_limit)
+            ).scalars().all()
+            if not leaderboard_stories:
+                leaderboard_stories = stories
             lead = next((s for s in stories if s.tier == StoryTier.lead), None)
             snapshot = FeedSnapshot(lead_story_id=lead.id if lead else None, metadata_json={"mode": "agent-run"})
             db.add(snapshot)
@@ -1449,33 +1461,33 @@ class PublishingAgent(BaseAgent):
                 )
                 story.last_published_at = datetime.now(timezone.utc)
 
-            infra = self._build_infrastructure_compute_capacity(db, stories)
-            valuations = self._build_model_builder_valuation(db, stories)
-            models = self._build_foundation_model_gpqa(db, stories)
-            mau = self._build_app_mau(db, stories)
+            infra = self._build_infrastructure_compute_capacity(db, leaderboard_stories)
+            valuations = self._build_model_builder_valuation(db, leaderboard_stories)
+            models = self._build_foundation_model_gpqa(db, leaderboard_stories)
+            mau = self._build_app_mau(db, leaderboard_stories)
             signals = [
                 Signal(
                     signal_type="app_adoption",
                     title="Monthly Active Users",
-                    value_json=self._build_signal_payload_with_rows(db, stories, mau),
+                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, mau),
                     rank=1,
                 ),
                 Signal(
                     signal_type="model_activity",
                     title="Foundation Models",
-                    value_json=self._build_signal_payload_with_rows(db, stories, models),
+                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, models),
                     rank=2,
                 ),
                 Signal(
                     signal_type="funding_tracker",
                     title="Model Builders",
-                    value_json=self._build_signal_payload_with_rows(db, stories, valuations),
+                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, valuations),
                     rank=3,
                 ),
                 Signal(
                     signal_type="trending_repos",
                     title="Infrastructure Leaders",
-                    value_json=self._build_signal_payload_with_rows(db, stories, infra),
+                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, infra),
                     rank=4,
                 ),
             ]
