@@ -95,7 +95,14 @@ DEFAULT_SOURCES = [
         "aws.amazon.com",
         SourceType.blog,
         0.82,
-        {"poll_minutes": 20, "timeout_seconds": 10, "feed_urls": ["https://aws.amazon.com/blogs/aws/feed/"]},
+        {
+            "poll_minutes": 20,
+            "timeout_seconds": 10,
+            "feed_urls": [
+                "https://aws.amazon.com/blogs/aws/feed/",
+                "https://aws.amazon.com/blogs/machine-learning/feed/",
+            ],
+        },
     ),
     (
         "Google Cloud Blog",
@@ -182,6 +189,69 @@ DEFAULT_SOURCES = [
         {"poll_minutes": 25, "timeout_seconds": 10, "feed_urls": ["https://paperswithcode.com/rss/latest"]},
     ),
     (
+        "Google Research Blog",
+        "research.google",
+        SourceType.research,
+        0.84,
+        {"poll_minutes": 20, "timeout_seconds": 10, "feed_urls": ["https://research.google/blog/rss/"]},
+    ),
+    (
+        "Microsoft Research Blog",
+        "microsoft.com",
+        SourceType.research,
+        0.82,
+        {"poll_minutes": 20, "timeout_seconds": 10, "feed_urls": ["https://www.microsoft.com/en-us/research/feed/"]},
+    ),
+    (
+        "NVIDIA Developer Blog",
+        "developer.nvidia.com",
+        SourceType.blog,
+        0.8,
+        {"poll_minutes": 20, "timeout_seconds": 10, "feed_urls": ["https://developer.nvidia.com/blog/feed/"]},
+    ),
+    (
+        "Cohere Blog",
+        "cohere.com",
+        SourceType.blog,
+        0.78,
+        {"poll_minutes": 25, "timeout_seconds": 10, "feed_urls": ["https://cohere.com/blog/rss.xml"]},
+    ),
+    (
+        "Scale AI Blog",
+        "scale.com",
+        SourceType.blog,
+        0.76,
+        {"poll_minutes": 25, "timeout_seconds": 10, "feed_urls": ["https://scale.com/blog/rss.xml"]},
+    ),
+    (
+        "Databricks Blog",
+        "databricks.com",
+        SourceType.blog,
+        0.75,
+        {"poll_minutes": 25, "timeout_seconds": 10, "feed_urls": ["https://www.databricks.com/blog/feed"]},
+    ),
+    (
+        "BAIR Blog",
+        "bair.berkeley.edu",
+        SourceType.research,
+        0.78,
+        {"poll_minutes": 30, "timeout_seconds": 10, "feed_urls": ["https://bair.berkeley.edu/blog/feed.xml"]},
+    ),
+    (
+        "The Gradient",
+        "thegradient.pub",
+        SourceType.research,
+        0.72,
+        {"poll_minutes": 30, "timeout_seconds": 10, "feed_urls": ["https://thegradient.pub/rss/"]},
+    ),
+    (
+        "Import AI",
+        "importai.substack.com",
+        SourceType.news,
+        0.72,
+        {"poll_minutes": 30, "timeout_seconds": 10, "feed_urls": ["https://importai.substack.com/feed"]},
+    ),
+    (
         "Hacker News",
         "news.ycombinator.com",
         SourceType.discussion,
@@ -199,11 +269,11 @@ DEFAULT_SOURCES = [
 
 
 def ensure_seed_data(db: Session) -> None:
-    existing = db.execute(select(Source)).scalars().first()
-    if existing:
-        return
+    existing_domains = set(db.execute(select(Source.domain)).scalars().all())
 
     for name, domain, source_type, authority, crawl_config in DEFAULT_SOURCES:
+        if domain in existing_domains:
+            continue
         db.add(
             Source(
                 name=name,
@@ -217,4 +287,5 @@ def ensure_seed_data(db: Session) -> None:
                 updated_at=datetime.now(timezone.utc),
             )
         )
+        existing_domains.add(domain)
     db.commit()
