@@ -104,7 +104,21 @@ function toRankingRows(signal: SignalWidget, scoreSuffix?: string): RankingRow[]
 }
 
 function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTable[] {
-  const byType = new Map(signals.map((signal) => [signal.type, signal]));
+  const byType = new Map<string, SignalWidget>();
+  for (const signal of signals) {
+    const existing = byType.get(signal.type);
+    if (!existing) {
+      byType.set(signal.type, signal);
+      continue;
+    }
+    const existingTs = Date.parse(existing.observed_at);
+    const nextTs = Date.parse(signal.observed_at);
+    const existingTime = Number.isFinite(existingTs) ? existingTs : 0;
+    const nextTime = Number.isFinite(nextTs) ? nextTs : 0;
+    if (nextTime >= existingTime) {
+      byType.set(signal.type, signal);
+    }
+  }
   const updatedAt = stats.last_update_time ?? undefined;
 
   return RANKING_CONFIGS.map((config) => {
