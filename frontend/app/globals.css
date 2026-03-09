@@ -126,12 +126,19 @@ a {
   font-family: "Iowan Old Style", "Georgia", "Times New Roman", serif;
   font-weight: 700;
   margin-bottom: 0.45rem;
-  line-height: 1.32;
-  font-size: 1.22rem;
+  line-height: 1.28;
+  font-size: 1.28rem;
 }
 
 .feed-card.lead .headline {
-  font-size: 1.34rem;
+  font-size: 1.5rem;
+}
+
+.story-deck {
+  margin: 0 0 0.55rem;
+  color: #243244;
+  line-height: 1.5;
+  font-size: 1rem;
 }
 
 .story-link-area {
@@ -153,8 +160,8 @@ a {
 .bullets li {
   margin-bottom: 0.3rem;
   color: #1f2d3d;
-  line-height: 1.42;
-  font-size: 0.95rem;
+  line-height: 1.46;
+  font-size: 0.98rem;
 }
 
 .meta-line {
@@ -249,8 +256,8 @@ a {
 
 .quick-overview {
   margin-top: 0.22rem;
-  font-size: 0.88rem;
-  line-height: 1.38;
+  font-size: 0.93rem;
+  line-height: 1.46;
   color: #2f3947;
 }
 

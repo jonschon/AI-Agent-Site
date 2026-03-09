@@ -3,10 +3,10 @@ import Link from "next/link";
 import { StoryCard as Story } from "@/types/news";
 
 export function QuickUpdateRow({ story }: { story: Story }) {
-  const topBullets = story.bullets.slice(0, 2).filter(Boolean);
+  const topBullets = story.bullets.slice(0, 3).filter(Boolean);
   const overview =
     topBullets.length > 0
-      ? topBullets.join(" ").slice(0, 260) + (topBullets.join(" ").length > 260 ? "..." : "")
+      ? topBullets.join(" ").slice(0, 360) + (topBullets.join(" ").length > 360 ? "..." : "")
       : "Coverage is evolving.";
 
   return (

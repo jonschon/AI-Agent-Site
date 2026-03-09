@@ -8,7 +8,14 @@ type Props = {
 };
 
 export function StoryCard({ story, variant }: Props) {
-  const bullets = [...story.bullets].slice(0, 3);
+  const storyBullets = [...story.bullets].filter(Boolean);
+  const bullets = storyBullets.slice(0, variant === "lead" ? 4 : 3);
+  const deckSource = storyBullets.slice(0, variant === "lead" ? 2 : 1).join(" ");
+  const deckLimit = variant === "lead" ? 340 : 220;
+  const deck =
+    deckSource.length > 0
+      ? deckSource.slice(0, deckLimit) + (deckSource.length > deckLimit ? "..." : "")
+      : null;
   const normalizeExternalUrl = (raw: string): string | null => {
     const trimmed = raw.trim();
     if (!trimmed) return null;
@@ -28,6 +35,7 @@ export function StoryCard({ story, variant }: Props) {
       </div>
       <Link href={`/story/${story.slug}`} className="story-link-area">
         <div className="headline">{story.headline}</div>
+        {deck && <p className="story-deck">{deck}</p>}
         <ul className="bullets">
           {bullets.map((bullet, index) => (
             <li key={`${story.id}-${index}`}>{bullet}</li>
