@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
+import re
 from typing import Optional
 
 from sqlalchemy import desc, func, select
@@ -37,6 +38,12 @@ from app.schemas.news import (
     StoryDetail,
 )
 from app.services.scoring import badges_for_story, is_new_story
+
+SYNTHETIC_URL_RE = re.compile(r"/news/[0-9a-f]{10}$")
+
+
+def _is_synthetic_story_url(url: str) -> bool:
+    return bool(SYNTHETIC_URL_RE.search(url))
 
 
 def _to_aware_utc(dt: datetime) -> datetime:
@@ -141,6 +148,8 @@ def _story_card(db: Session, story: Story) -> StoryCard:
     now = datetime.now(timezone.utc)
     source_candidates: list[dict] = []
     for source_id, source_name, authority_score, url, published_at, cluster_confidence in source_rows:
+        if _is_synthetic_story_url(str(url)):
+            continue
         published = _to_aware_utc(published_at)
         hours_old = (now - published).total_seconds() / 3600
         source_candidates.append(

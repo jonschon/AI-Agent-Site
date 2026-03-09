@@ -209,8 +209,13 @@ class CrawlerAgent(BaseAgent):
                     continue
 
                 if not entries:
-                    entries = [build_synthetic_entry(source)]
-                    used_fallback = True
+                    if settings.crawler_allow_synthetic_fallback and source.domain.endswith(".example.com"):
+                        entries = [build_synthetic_entry(source)]
+                        used_fallback = True
+                    else:
+                        self._record_source_failure(db, source, "No feed entries returned")
+                        updated += 1
+                        continue
 
                 created_for_source = 0
                 for entry in entries:

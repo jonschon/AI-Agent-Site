@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     crawler_fetch_limit_per_source: int = 12
     crawler_max_new_articles_per_source: int = 6
     crawler_max_new_articles_per_cycle: int = 60
+    crawler_allow_synthetic_fallback: bool = False
     summarization_skip_unchanged: bool = True
     clustering_window_hours: int = 72
     clustering_min_confidence: float = 0.58

@@ -39,15 +39,23 @@ def test_pipeline_e2e_smoke() -> None:
         )
         db.commit()
 
-        results = run_pipeline(db)
-        assert "crawler" in results
-        assert "publishing" in results
+        from app.core.config import settings
 
-        snapshot = db.execute(select(FeedSnapshot).order_by(FeedSnapshot.id.desc())).scalar_one_or_none()
-        assert snapshot is not None
+        original = settings.crawler_allow_synthetic_fallback
+        settings.crawler_allow_synthetic_fallback = True
 
-        active_stories = db.execute(select(Story).where(Story.status == StoryStatus.active)).scalars().all()
-        assert len(active_stories) >= 1
+        try:
+            results = run_pipeline(db)
+            assert "crawler" in results
+            assert "publishing" in results
+
+            snapshot = db.execute(select(FeedSnapshot).order_by(FeedSnapshot.id.desc())).scalar_one_or_none()
+            assert snapshot is not None
+
+            active_stories = db.execute(select(Story).where(Story.status == StoryStatus.active)).scalars().all()
+            assert len(active_stories) >= 1
+        finally:
+            settings.crawler_allow_synthetic_fallback = original
 
 
 def test_crawler_respects_global_and_per_source_caps(monkeypatch) -> None:
