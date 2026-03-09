@@ -64,6 +64,12 @@ def target_bullet_count(tier: StoryTier | str, importance_score: float) -> int:
     return 1
 
 
+def to_aware_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 class BaseAgent:
     name = "base"
 
@@ -854,6 +860,28 @@ class PublishingAgent(BaseAgent):
                 values.append(numeric / 1000.0)
         return values
 
+    def _extract_percentages(self, text: str) -> list[float]:
+        values: list[float] = []
+        pattern = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+        for match in pattern.findall(text):
+            value = float(match)
+            if 0 <= value <= 100:
+                values.append(value)
+        return values
+
+    def _extract_compute_capacity_h100_eq(self, text: str) -> list[float]:
+        values: list[float] = []
+        pattern = re.compile(r"(\d+(?:\.\d+)?)\s*(k|m)?\s*(h100|h200|gpu|gpus)\b", re.IGNORECASE)
+        for amount, magnitude, _unit in pattern.findall(text):
+            numeric = float(amount)
+            magnitude_norm = magnitude.lower() if magnitude else ""
+            if magnitude_norm == "k":
+                numeric *= 1000
+            elif magnitude_norm == "m":
+                numeric *= 1_000_000
+            values.append(numeric)
+        return values
+
     def _rank_entities(
         self,
         db: Session,
@@ -933,64 +961,71 @@ class PublishingAgent(BaseAgent):
             if previous:
                 valuations = previous
 
-        if not valuations:
-            coverage_proxy = self._rank_entities(
-                db,
-                stories,
-                entities,
-                baseline=15.0,
-                mention_weight=6.0,
-                diversity_weight=1.8,
-                importance_weight=14.0,
-                momentum_weight=6.0,
-                cap=120.0,
-            )
-            valuations = coverage_proxy
-
         ranked = sorted(valuations.items(), key=lambda item: item[1], reverse=True)[:10]
         return {name: round(value, 1) for name, value in ranked}
 
-    def _build_foundation_model_ranking(self, db: Session, stories: list[Story]) -> dict[str, float]:
+    def _build_foundation_model_gpqa(self, db: Session, stories: list[Story]) -> dict[str, float]:
         entities = {
-            "GPT-4": ("gpt-4", "gpt4", "openai model"),
+            "GPT-4": ("gpt-4", "gpt4"),
             "Claude": ("claude",),
             "Gemini": ("gemini",),
             "Llama": ("llama",),
             "Grok": ("grok",),
             "Mistral Large": ("mistral large", "mistral"),
         }
-        return self._rank_entities(
-            db,
-            stories,
-            entities,
-            baseline=52.0,
-            mention_weight=6.0,
-            diversity_weight=2.2,
-            importance_weight=14.0,
-            momentum_weight=7.0,
-            cap=98.0,
-        )
+        gpqa_scores: dict[str, float] = {}
+        for story in stories:
+            text = self._story_text(story)
+            if "gpqa" not in text:
+                continue
+            percentages = self._extract_percentages(text)
+            if not percentages:
+                continue
+            best_score = max(percentages)
+            for entity, aliases in entities.items():
+                if any(alias in text for alias in aliases):
+                    gpqa_scores[entity] = max(gpqa_scores.get(entity, 0.0), best_score)
 
-    def _build_application_ranking(self, db: Session, stories: list[Story]) -> dict[str, float]:
+        if not gpqa_scores:
+            previous = self._latest_signal_data(db, "model_activity")
+            if previous:
+                gpqa_scores = previous
+
+        ranked = sorted(gpqa_scores.items(), key=lambda item: item[1], reverse=True)[:10]
+        return {name: round(value, 1) for name, value in ranked}
+
+    def _build_infrastructure_compute_capacity(self, db: Session, stories: list[Story]) -> dict[str, float]:
         entities = {
-            "ChatGPT": ("chatgpt",),
-            "Claude.ai": ("claude.ai", "claude app"),
-            "Perplexity": ("perplexity",),
-            "GitHub Copilot": ("copilot",),
-            "Cursor": ("cursor",),
-            "Midjourney": ("midjourney",),
+            "NVIDIA": ("nvidia",),
+            "AWS": ("aws", "amazon web services"),
+            "Microsoft Azure": ("azure", "microsoft cloud"),
+            "Google Cloud": ("google cloud", "gcp"),
+            "CoreWeave": ("coreweave",),
+            "AMD": ("amd",),
         }
-        return self._rank_entities(
-            db,
-            stories,
-            entities,
-            baseline=8.0,
-            mention_weight=4.0,
-            diversity_weight=1.4,
-            importance_weight=7.0,
-            momentum_weight=4.0,
-            cap=120.0,
-        )
+        capacities: dict[str, float] = {}
+        cutoff = datetime.now(timezone.utc) - timedelta(days=180)
+        for story in stories:
+            if to_aware_utc(story.first_seen_at) < cutoff:
+                continue
+            text = self._story_text(story)
+            if not any(word in text for word in ("gpu", "h100", "h200", "capacity", "cluster", "datacenter")):
+                continue
+            extracted = self._extract_compute_capacity_h100_eq(text)
+            if not extracted:
+                continue
+            max_value = max(extracted)
+            for entity, aliases in entities.items():
+                if any(alias in text for alias in aliases):
+                    capacities[entity] = capacities.get(entity, 0.0) + max_value
+
+        if not capacities:
+            previous = self._latest_signal_data(db, "trending_repos")
+            if previous:
+                capacities = previous
+
+        ranked = sorted(capacities.items(), key=lambda item: item[1], reverse=True)[:10]
+        return {name: round(value, 1) for name, value in ranked}
 
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
@@ -1021,15 +1056,13 @@ class PublishingAgent(BaseAgent):
                 )
                 story.last_published_at = datetime.now(timezone.utc)
 
-            infra = self._build_infrastructure_ranking(db, stories)
+            infra = self._build_infrastructure_compute_capacity(db, stories)
             valuations = self._build_model_builder_valuation(db, stories)
-            models = self._build_foundation_model_ranking(db, stories)
-            apps = self._build_application_ranking(db, stories)
+            models = self._build_foundation_model_gpqa(db, stories)
             signals = [
-                Signal(signal_type="trending_repos", title="Infrastructure Leaders", value_json=infra, rank=1),
+                Signal(signal_type="model_activity", title="Foundation Models", value_json=models, rank=1),
                 Signal(signal_type="funding_tracker", title="Model Builders", value_json=valuations, rank=2),
-                Signal(signal_type="model_activity", title="Foundation Models", value_json=models, rank=3),
-                Signal(signal_type="research_papers", title="Applications", value_json=apps, rank=4),
+                Signal(signal_type="trending_repos", title="Infrastructure Leaders", value_json=infra, rank=3),
             ]
             for signal in signals:
                 db.add(signal)

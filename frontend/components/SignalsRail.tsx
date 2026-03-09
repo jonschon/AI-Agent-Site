@@ -21,9 +21,9 @@ type RankingConfig = {
 
 const RANKING_CONFIGS: RankingConfig[] = [
   {
-    topic: "Infrastructure Leaders",
-    metric: "Available AI compute capacity",
-    signalType: "trending_repos",
+    topic: "Foundation Models",
+    metric: "GPQA accuracy (%)",
+    signalType: "model_activity",
   },
   {
     topic: "Model Builders",
@@ -31,24 +31,11 @@ const RANKING_CONFIGS: RankingConfig[] = [
     signalType: "funding_tracker",
   },
   {
-    topic: "Foundation Models",
-    metric: "Task win rate",
-    signalType: "model_activity",
-  },
-  {
-    topic: "Applications",
-    metric: "Weekly active users",
-    signalType: "research_papers",
+    topic: "Infrastructure Leaders",
+    metric: "Announced AI compute capacity added (180d, H100-eq)",
+    signalType: "trending_repos",
   },
 ];
-
-function buildValuationRows(seed: number): RankingRow[] {
-  return Array.from({ length: 5 }, (_, index) => ({
-    rank: index + 1,
-    label: `AI lab cohort ${index + 1}`,
-    score: `$${Math.max(220 - index * 20 + seed, 70)}B`,
-  }));
-}
 
 function formatObservedAt(value?: string): string {
   if (!value) return "n/a";
@@ -66,7 +53,7 @@ function numberFromSignal(value: unknown): number | null {
   return null;
 }
 
-function toRankingRows(signal: SignalWidget, fallbackCount: number, scoreSuffix?: string): RankingRow[] {
+function toRankingRows(signal: SignalWidget, scoreSuffix?: string): RankingRow[] {
   const entries = Object.entries(signal.data)
     .filter(([, value]) => typeof value === "number" || typeof value === "string")
     .map(([key, value]) => {
@@ -79,7 +66,7 @@ function toRankingRows(signal: SignalWidget, fallbackCount: number, scoreSuffix?
     .filter((entry) => entry.numeric !== null);
 
   if (entries.length > 0) {
-    const ranked = entries
+    return entries
       .sort((a, b) => (b.numeric ?? -Infinity) - (a.numeric ?? -Infinity))
       .slice(0, 10)
       .map((entry, index) => ({
@@ -87,39 +74,21 @@ function toRankingRows(signal: SignalWidget, fallbackCount: number, scoreSuffix?
         label: entry.label,
         score: `${String(entry.numeric)}${scoreSuffix ?? ""}`,
       }));
-
-    const minRows = 5;
-    while (ranked.length < minRows) {
-      const index = ranked.length;
-      ranked.push({
-        rank: index + 1,
-        label: `${signal.title} contender ${index + 1}`,
-        score: `${Math.max(92 - index * 6, 66)}${scoreSuffix ?? ""}`,
-      });
-    }
-    return ranked;
   }
-
-  const itemCount = numberFromSignal(signal.data.items) ?? fallbackCount;
-  return Array.from({ length: Math.min(5, Math.max(3, itemCount)) }, (_, index) => ({
-    rank: index + 1,
-    label: `${signal.title} contender ${index + 1}`,
-    score: `${Math.max(100 - index * 7, 68)}${scoreSuffix ?? ""}`,
-  }));
+  return [];
 }
 
 function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTable[] {
   const byType = new Map(signals.map((signal) => [signal.type, signal]));
   const updatedAt = stats.last_update_time ?? undefined;
-  const seed = Math.floor(stats.articles_processed / 4);
 
-  return RANKING_CONFIGS.map((config, tableIndex) => {
+  return RANKING_CONFIGS.map((config) => {
     const signal = config.signalType ? byType.get(config.signalType) : undefined;
 
     if (signal) {
       const suffix =
         config.topic === "Foundation Models" ? "%" : config.topic === "Model Builders" ? "B" : "";
-      const formattedRows = toRankingRows(signal, stats.stories_detected, suffix).map((row) => ({
+      const formattedRows = toRankingRows(signal, suffix).map((row) => ({
         ...row,
         score: config.topic === "Model Builders" ? `$${row.score}` : row.score,
       }));
@@ -127,35 +96,18 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
         topic: config.topic,
         metric: config.metric,
         updatedAt: signal.observed_at,
-        rows: formattedRows,
+        rows:
+          formattedRows.length > 0
+            ? formattedRows
+            : [{ rank: 1, label: "Insufficient public data", score: "n/a" }],
       };
     }
 
-    if (config.topic === "Model Builders") {
-      return {
-        topic: config.topic,
-        metric: config.metric,
-        updatedAt: updatedAt,
-        rows: buildValuationRows(seed),
-      };
-    }
-
-    const fallbackPrefix =
-      config.topic === "Infrastructure Leaders"
-        ? "Provider"
-        : config.topic === "Foundation Models"
-          ? "Model"
-          : "App";
-    const scoreSuffix = config.topic === "Foundation Models" ? "%" : "";
     return {
       topic: config.topic,
       metric: config.metric,
       updatedAt,
-      rows: Array.from({ length: 5 }, (_, index) => ({
-        rank: index + 1,
-        label: `${fallbackPrefix} ${index + 1}`,
-        score: `${Math.max(96 - index * 6 - tableIndex * 2, 58)}${scoreSuffix}`,
-      })),
+      rows: [{ rank: 1, label: "Insufficient public data", score: "n/a" }],
     };
   });
 }
