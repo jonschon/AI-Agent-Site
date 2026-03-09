@@ -1410,7 +1410,42 @@ PIPELINE = {
 }
 
 
+def reconcile_stale_running_agent_runs(db: Session, stale_minutes: int = 60) -> int:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+    rows = db.execute(
+        select(AgentRun).where(
+            AgentRun.status == RunStatus.running,
+            AgentRun.agent_name.in_(list(PIPELINE.keys())),
+            AgentRun.started_at < cutoff,
+        )
+    ).scalars().all()
+    if not rows:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    for run in rows:
+        run.status = RunStatus.failed
+        run.ended_at = now
+        run.error_text = "Marked stale after exceeding runtime window."
+        db.add(run)
+    db.commit()
+    return len(rows)
+
+
+def has_recent_running_pipeline_activity(db: Session, active_window_minutes: int = 20) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=active_window_minutes)
+    count = db.execute(
+        select(func.count(AgentRun.id)).where(
+            AgentRun.status == RunStatus.running,
+            AgentRun.agent_name.in_(list(PIPELINE.keys())),
+            AgentRun.started_at >= cutoff,
+        )
+    ).scalar_one()
+    return int(count or 0) > 0
+
+
 def run_pipeline_steps(db: Session, ordered: list[str]) -> dict[str, dict]:
+    reconcile_stale_running_agent_runs(db)
     results: dict[str, dict] = {}
 
     for name in ordered:
@@ -1441,5 +1476,6 @@ def run_pipeline(db: Session) -> dict[str, dict]:
 def run_single_agent(db: Session, agent_name: str) -> dict:
     if agent_name not in PIPELINE:
         raise ValueError(f"Unknown agent: {agent_name}")
+    reconcile_stale_running_agent_runs(db)
     result = PIPELINE[agent_name].run(db)
     return {"agent": agent_name, "processed": result.processed, "created": result.created, "updated": result.updated}

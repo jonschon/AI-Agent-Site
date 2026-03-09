@@ -5,7 +5,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agents.pipeline import run_pipeline, run_pipeline_steps, run_single_agent
+from app.agents.pipeline import (
+    has_recent_running_pipeline_activity,
+    reconcile_stale_running_agent_runs,
+    run_pipeline,
+    run_pipeline_steps,
+    run_single_agent,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.news import ExceptionItem, ExceptionStatus
@@ -35,9 +41,12 @@ def trigger_agent_run(
     db: Session = Depends(get_db),
     _: None = Depends(_check_internal_auth),
 ) -> dict:
-    if agent_name == "all":
-        return {"results": run_pipeline(db)}
-    return run_single_agent(db, agent_name)
+    try:
+        if agent_name == "all":
+            return {"results": run_pipeline(db)}
+        return run_single_agent(db, agent_name)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/agent-runs", response_model=list[AgentRunOut])
@@ -92,6 +101,17 @@ def run_autonomous_cycle(
     db: Session = Depends(get_db),
     _: None = Depends(_check_internal_auth),
 ) -> AutonomousCycleResult:
+    reconcile_stale_running_agent_runs(db)
+    if has_recent_running_pipeline_activity(db):
+        prepublish_policy = evaluate_prepublish_policy(db)
+        return AutonomousCycleResult(
+            status="hold",
+            action="hold",
+            blocking_reasons=["Another pipeline cycle is currently running."],
+            prepublish_metrics=prepublish_policy.metrics,
+            pipeline_results={},
+        )
+
     prepublish_steps = [
         "crawler",
         "normalization",
@@ -104,7 +124,17 @@ def run_autonomous_cycle(
         "self_heal",
         "policy_tuning",
     ]
-    results = run_pipeline_steps(db, prepublish_steps)
+    try:
+        results = run_pipeline_steps(db, prepublish_steps)
+    except RuntimeError:
+        prepublish_policy = evaluate_prepublish_policy(db)
+        return AutonomousCycleResult(
+            status="hold",
+            action="hold",
+            blocking_reasons=["Another pipeline cycle is currently running."],
+            prepublish_metrics=prepublish_policy.metrics,
+            pipeline_results={},
+        )
     prepublish_policy = evaluate_prepublish_policy(db)
     if prepublish_policy.status == "pass":
         publish_result = run_single_agent(db, "publishing")
