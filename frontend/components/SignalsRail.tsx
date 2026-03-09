@@ -118,7 +118,7 @@ export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats
   return (
     <aside className="rail" aria-label="Newsroom rankings">
       <section className="widget rankings-panel">
-        <h4>Agent Rankings</h4>
+        <h4>AI Market Leaderboards</h4>
         <div className="meta-line">Top lists update from live signal extraction and story analysis.</div>
       </section>
       {rankings.map((table) => (
