@@ -12,10 +12,6 @@ export default async function StoryPage({ params }: { params: Promise<{ slug: st
       <>
         <Header />
         <StoryCard story={story} variant={story.tier === "lead" ? "lead" : "major"} />
-        <div className="feed-card">
-          <h3>Story metadata</h3>
-          <p className="meta-line">Sources in cluster: {story.related_sources_count}</p>
-        </div>
       </>
     );
   } catch {

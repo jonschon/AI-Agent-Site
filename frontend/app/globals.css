@@ -132,6 +132,14 @@ a {
   font-size: 1.03rem;
 }
 
+.story-link-area {
+  display: block;
+}
+
+.story-link-area:hover .headline {
+  color: var(--accent);
+}
+
 .bullets {
   margin: 0.2rem 0 0.72rem;
   padding-left: 1.1rem;

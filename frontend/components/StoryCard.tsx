@@ -9,6 +9,13 @@ type Props = {
 
 export function StoryCard({ story, variant }: Props) {
   const bullets = [...story.bullets].slice(0, 3);
+  const normalizeExternalUrl = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+    if (trimmed.startsWith("//")) return `https:${trimmed}`;
+    return `https://${trimmed}`;
+  };
 
   return (
     <article className={`feed-card ${variant === "lead" ? "lead" : ""}`}>
@@ -19,33 +26,41 @@ export function StoryCard({ story, variant }: Props) {
           </span>
         ))}
       </div>
-      <Link href={`/story/${story.slug}`} className="headline">
-        {story.headline}
+      <Link href={`/story/${story.slug}`} className="story-link-area">
+        <div className="headline">{story.headline}</div>
+        <ul className="bullets">
+          {bullets.map((bullet, index) => (
+            <li key={`${story.id}-${index}`}>{bullet}</li>
+          ))}
+        </ul>
       </Link>
-      <ul className="bullets">
-        {bullets.map((bullet, index) => (
-          <li key={`${story.id}-${index}`}>{bullet}</li>
-        ))}
-      </ul>
       <div className="meta-line">
         <strong>Sources</strong>{" "}
         <span className="meta-list">
-          {story.sources.map((source) => (
-            <a key={source.url} href={source.url} target="_blank" rel="noreferrer">
-              {source.source_name}
-            </a>
-          ))}
+          {story.sources.map((source) => {
+            const href = normalizeExternalUrl(source.url);
+            if (!href) return <span key={`${source.source_name}-${source.url}`}>{source.source_name}</span>;
+            return (
+              <a key={source.url} href={href} target="_blank" rel="noreferrer noopener">
+                {source.source_name}
+              </a>
+            );
+          })}
         </span>
       </div>
       {story.discussions.length > 0 && (
         <div className="meta-line">
           <strong>Discussion</strong>{" "}
           <span className="meta-list">
-            {story.discussions.map((discussion) => (
-              <a key={discussion.url} href={discussion.url} target="_blank" rel="noreferrer">
-                {discussion.platform}
-              </a>
-            ))}
+            {story.discussions.map((discussion) => {
+              const href = normalizeExternalUrl(discussion.url);
+              if (!href) return <span key={`${discussion.platform}-${discussion.url}`}>{discussion.platform}</span>;
+              return (
+                <a key={discussion.url} href={href} target="_blank" rel="noreferrer noopener">
+                  {discussion.platform}
+                </a>
+              );
+            })}
           </span>
         </div>
       )}
