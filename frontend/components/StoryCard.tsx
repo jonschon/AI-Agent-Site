@@ -10,9 +10,9 @@ type Props = {
 
 export function StoryCard({ story, variant }: Props) {
   const storyBullets = [...story.bullets].filter(Boolean);
-  const bullets = storyBullets.slice(0, variant === "lead" ? 4 : 3);
-  const deckSource = storyBullets.slice(0, variant === "lead" ? 2 : 1).join(" ");
-  const deckLimit = variant === "lead" ? 340 : 220;
+  const bullets = storyBullets.slice(0, variant === "lead" ? 5 : 4);
+  const deckSource = storyBullets.slice(0, variant === "lead" ? 3 : 2).join(" ");
+  const deckLimit = variant === "lead" ? 460 : 320;
   const deck =
     deckSource.length > 0
       ? deckSource.slice(0, deckLimit) + (deckSource.length > deckLimit ? "..." : "")
