@@ -251,11 +251,30 @@ a {
   max-height: calc(100vh - 3.8rem);
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c9c4b8 transparent;
   background: transparent;
   border-left: 1px solid var(--line);
   border-radius: 0;
   padding: 0 0 0 1rem;
   box-shadow: none;
+}
+
+.rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rail::-webkit-scrollbar-thumb {
+  background: #c9c4b8;
+  border-radius: 8px;
+}
+
+.rail::-webkit-scrollbar-thumb:hover {
+  background: #b8b2a5;
 }
 
 .widget {
