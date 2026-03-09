@@ -39,9 +39,13 @@ a {
 .header {
   border-top: 2px solid #111;
   border-bottom: 1px solid var(--line);
-  background: transparent;
+  background: color-mix(in srgb, var(--bg) 94%, white 6%);
+  backdrop-filter: blur(6px);
   margin-bottom: 1rem;
   padding: 0.82rem 0 0.78rem;
+  position: sticky;
+  top: 0;
+  z-index: 120;
 }
 
 .brand-row {
@@ -227,7 +231,7 @@ a {
 
 .rail {
   position: sticky;
-  top: 0.8rem;
+  top: 6.2rem;
   height: fit-content;
   background: transparent;
   border-left: 1px solid var(--line);
