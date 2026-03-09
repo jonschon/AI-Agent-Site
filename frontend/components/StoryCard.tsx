@@ -6,6 +6,7 @@ import { StoryCard as Story } from "@/types/news";
 type Props = {
   story: Story;
   variant: "lead" | "major";
+  showTags?: boolean;
 };
 
 function normalizeForCompare(text: string): string {
@@ -24,7 +25,7 @@ function nearDuplicate(a: string, b: string): boolean {
   return overlap >= 0.8;
 }
 
-export function StoryCard({ story, variant }: Props) {
+export function StoryCard({ story, variant, showTags = true }: Props) {
   const filteredBullets = [...story.bullets].filter((bullet) => {
     const cleaned = bullet.trim();
     if (!cleaned) return false;
@@ -113,16 +114,18 @@ export function StoryCard({ story, variant }: Props) {
           </span>
         </div>
       )}
-      <div className="meta-line">
-        <strong>Tags</strong>{" "}
-        <span className="meta-list">
-          {story.tags.map((tag) => (
-            <span key={tag} className="tag">
-              {tag}
-            </span>
-          ))}
-        </span>
-      </div>
+      {showTags && (
+        <div className="meta-line">
+          <strong>Tags</strong>{" "}
+          <span className="meta-list">
+            {story.tags.map((tag) => (
+              <span key={tag} className="tag">
+                {tag}
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
     </article>
   );
 }

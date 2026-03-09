@@ -22,9 +22,9 @@ export default async function HomePage() {
                 body="The agent pipeline has not published the first snapshot yet. Run an internal cycle and refresh."
               />
             )}
-            {feed.lead_story && <StoryCard story={feed.lead_story} variant="lead" />}
+            {feed.lead_story && <StoryCard story={feed.lead_story} variant="lead" showTags={false} />}
             {feed.major_stories.map((story) => (
-              <StoryCard key={story.id} story={story} variant="major" />
+              <StoryCard key={story.id} story={story} variant="major" showTags={false} />
             ))}
             <section className="feed-card">
               <h3>Quick Updates</h3>
