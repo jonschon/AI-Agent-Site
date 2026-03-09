@@ -22,3 +22,7 @@ def test_select_story_sources_enforces_diversity_and_per_source_cap() -> None:
     assert counts["S1"] <= 2
     assert counts["S2"] <= 2
     assert len(counts) >= 3
+
+
+def test_select_story_sources_empty_candidates_returns_empty() -> None:
+    assert _select_story_sources([]) == []
