@@ -9,7 +9,6 @@ type RankingRow = {
 type RankingTable = {
   topic: string;
   metric: string;
-  updatedAt?: string;
   rows: RankingRow[];
 };
 
@@ -78,9 +77,8 @@ function toRankingRows(signal: SignalWidget, scoreSuffix?: string): RankingRow[]
   return [];
 }
 
-function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTable[] {
+function buildRankings(signals: SignalWidget[]): RankingTable[] {
   const byType = new Map(signals.map((signal) => [signal.type, signal]));
-  const updatedAt = stats.last_update_time ?? undefined;
 
   return RANKING_CONFIGS.map((config) => {
     const signal = config.signalType ? byType.get(config.signalType) : undefined;
@@ -95,7 +93,6 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
       return {
         topic: config.topic,
         metric: config.metric,
-        updatedAt: signal.observed_at,
         rows:
           formattedRows.length > 0
             ? formattedRows
@@ -106,20 +103,28 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
     return {
       topic: config.topic,
       metric: config.metric,
-      updatedAt,
       rows: [{ rank: 1, label: "Insufficient public data", score: "n/a" }],
     };
   });
 }
 
 export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats: NewsroomStats }) {
-  const rankings = buildRankings(signals, stats);
+  const rankings = buildRankings(signals);
+  const observedTimes = signals
+    .map((signal) => new Date(signal.observed_at))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .map((value) => value.getTime());
+  const latestObservedAt =
+    observedTimes.length > 0
+      ? new Date(Math.max(...observedTimes)).toISOString()
+      : stats.last_update_time ?? undefined;
 
   return (
     <aside className="rail" aria-label="Newsroom rankings">
       <section className="widget rankings-panel">
         <h4>AI Market Leaderboards</h4>
         <div className="meta-line">Top lists update from live signal extraction and story analysis.</div>
+        <div className="meta-line">Updated: {formatObservedAt(latestObservedAt)}</div>
       </section>
       {rankings.map((table) => (
         <section key={table.topic} className="widget ranking-widget">
@@ -127,7 +132,6 @@ export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats
             <h5>{table.topic}</h5>
             <span className="metric-chip">{table.metric}</span>
           </div>
-          <div className="meta-line">Updated: {formatObservedAt(table.updatedAt)}</div>
           <table className="ranking-table">
             <thead>
               <tr>
