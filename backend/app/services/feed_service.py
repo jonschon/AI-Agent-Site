@@ -57,9 +57,9 @@ def _source_link_score(*, authority: float, hours_old: float, cluster_confidence
 def _select_story_sources(
     candidates: list[dict],
     *,
-    max_total: int = 6,
+    max_total: int = 8,
     max_per_source: int = 2,
-    min_unique_target: int = 3,
+    min_unique_target: int = 4,
 ) -> list[SourceLink]:
     if not candidates:
         return []

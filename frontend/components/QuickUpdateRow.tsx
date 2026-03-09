@@ -17,7 +17,7 @@ export function QuickUpdateRow({ story }: { story: Story }) {
       </Link>
       <div className="quick-overview">{overview}</div>
       <div className="meta-line">
-        {story.sources.slice(0, 3).map((source, index, list) => {
+        {story.sources.slice(0, 5).map((source, index, list) => {
           const href = normalizeExternalUrl(source.url);
           return (
             <span key={`${source.source_name}-${source.url}`}>
