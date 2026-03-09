@@ -25,6 +25,13 @@ type RankingConfig = {
 
 const RANKING_CONFIGS: RankingConfig[] = [
   {
+    topic: "Monthly Active Users",
+    metric: "Reported or inferred monthly active users",
+    scoreLabel: "MAU (M)",
+    scoreSuffix: "M",
+    signalType: "app_adoption",
+  },
+  {
     topic: "Foundation Models",
     metric: "GPQA accuracy (%)",
     scoreLabel: "GPQA (%)",

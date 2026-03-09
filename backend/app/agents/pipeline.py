@@ -980,6 +980,7 @@ class PublishingAgent(BaseAgent):
     MODEL_BUILDER_ENTITIES = ("OpenAI", "Anthropic", "Google DeepMind", "xAI", "Mistral", "Meta AI")
     FOUNDATION_MODEL_ENTITIES = ("GPT-4", "Claude", "Gemini", "Llama", "Grok", "Mistral Large")
     INFRA_ENTITIES = ("NVIDIA", "AWS", "Microsoft Azure", "Google Cloud", "CoreWeave", "AMD")
+    APP_ENTITIES = ("ChatGPT", "Claude", "Gemini", "Perplexity", "Microsoft Copilot", "Meta AI")
 
     def _story_text(self, story: Story) -> str:
         bullets = " ".join(story.bullets_json or [])
@@ -1046,6 +1047,30 @@ class PublishingAgent(BaseAgent):
             elif magnitude_norm == "m":
                 numeric *= 1_000_000
             values.append(numeric)
+        return values
+
+    def _extract_mau_millions(self, text: str) -> list[float]:
+        values: list[float] = []
+        patterns = [
+            re.compile(
+                r"(\d+(?:\.\d+)?)\s*(billion|million|bn|b|mn|m)\s*(monthly active users|maus|mau)\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(\d+(?:\.\d+)?)\s*(monthly active users|maus|mau)\b",
+                re.IGNORECASE,
+            ),
+        ]
+        for pattern in patterns:
+            for match in pattern.findall(text):
+                amount = float(match[0])
+                unit = match[1].lower() if len(match) > 2 else ""
+                if unit in {"billion", "bn", "b"}:
+                    values.append(amount * 1000.0)
+                elif unit in {"million", "mn", "m"}:
+                    values.append(amount)
+                else:
+                    values.append(amount)
         return values
 
     def _rank_entities(
@@ -1163,6 +1188,72 @@ class PublishingAgent(BaseAgent):
                 if entity not in out:
                     out[entity] = baseline_vals[entity]
                 if len(out) >= 3:
+                    break
+        return out
+
+    def _build_app_mau(self, db: Session, stories: list[Story]) -> dict[str, float]:
+        entities = {
+            "ChatGPT": ("chatgpt",),
+            "Claude": ("claude.ai", "claude"),
+            "Gemini": ("gemini",),
+            "Perplexity": ("perplexity",),
+            "Microsoft Copilot": ("copilot", "microsoft copilot"),
+            "Meta AI": ("meta ai",),
+        }
+        baseline_mau_millions = {
+            "ChatGPT": 300.0,
+            "Claude": 25.0,
+            "Gemini": 45.0,
+            "Perplexity": 15.0,
+            "Microsoft Copilot": 30.0,
+            "Meta AI": 50.0,
+        }
+        mau: dict[str, float] = {}
+        for story in stories:
+            text = self._story_text(story)
+            if "mau" not in text and "monthly active users" not in text and "maus" not in text:
+                continue
+            extracted = self._extract_mau_millions(text)
+            if not extracted:
+                continue
+            max_value = max(extracted)
+            for entity, aliases in entities.items():
+                if any(alias in text for alias in aliases):
+                    mau[entity] = max(mau.get(entity, 0.0), max_value)
+
+        if not mau:
+            previous = self._sanitize_signal_entities(
+                self._latest_signal_data(db, "app_adoption"), self.APP_ENTITIES
+            )
+            if previous:
+                mau = previous
+            else:
+                mentions = self._rank_entities(
+                    db,
+                    stories,
+                    entities,
+                    baseline=0.0,
+                    mention_weight=1.0,
+                    diversity_weight=0.35,
+                    importance_weight=1.8,
+                    momentum_weight=0.7,
+                    cap=100.0,
+                )
+                for entity, base in baseline_mau_millions.items():
+                    boost = min(20.0, float(mentions.get(entity, 0.0)) * 0.25)
+                    mau[entity] = round(base + boost, 1)
+
+        for entity, base in baseline_mau_millions.items():
+            if entity in mau:
+                mau[entity] = round(max(float(mau[entity]), base), 1)
+
+        ranked = sorted(mau.items(), key=lambda item: item[1], reverse=True)[:10]
+        out = {name: round(value, 1) for name, value in ranked}
+        if len(out) < 4:
+            for entity in self.APP_ENTITIES:
+                if entity not in out:
+                    out[entity] = baseline_mau_millions[entity]
+                if len(out) >= 4:
                     break
         return out
 
@@ -1310,10 +1401,12 @@ class PublishingAgent(BaseAgent):
             infra = self._build_infrastructure_compute_capacity(db, stories)
             valuations = self._build_model_builder_valuation(db, stories)
             models = self._build_foundation_model_gpqa(db, stories)
+            mau = self._build_app_mau(db, stories)
             signals = [
-                Signal(signal_type="model_activity", title="Foundation Models", value_json=models, rank=1),
-                Signal(signal_type="funding_tracker", title="Model Builders", value_json=valuations, rank=2),
-                Signal(signal_type="trending_repos", title="Infrastructure Leaders", value_json=infra, rank=3),
+                Signal(signal_type="app_adoption", title="Monthly Active Users", value_json=mau, rank=1),
+                Signal(signal_type="model_activity", title="Foundation Models", value_json=models, rank=2),
+                Signal(signal_type="funding_tracker", title="Model Builders", value_json=valuations, rank=3),
+                Signal(signal_type="trending_repos", title="Infrastructure Leaders", value_json=infra, rank=4),
             ]
             for signal in signals:
                 db.add(signal)

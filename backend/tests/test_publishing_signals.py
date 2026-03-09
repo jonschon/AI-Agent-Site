@@ -14,10 +14,12 @@ def test_publishing_rankings_have_minimum_candidates_without_story_inputs() -> N
     agent = PublishingAgent()
 
     with Session(engine) as db:
+        mau = agent._build_app_mau(db, [])
         models = agent._build_foundation_model_gpqa(db, [])
         builders = agent._build_model_builder_valuation(db, [])
         infra = agent._build_infrastructure_compute_capacity(db, [])
 
+        assert len(mau) >= 4
         assert len(models) >= 4
         assert len(builders) >= 3
         assert len(infra) >= 3
