@@ -1009,6 +1009,24 @@ class PublishingAgent(BaseAgent):
         ).all()
         return {int(row[0]) for row in rows if row and row[0] is not None}
 
+    def _story_source_urls(self, db: Session, story_id: int) -> list[str]:
+        rows = db.execute(
+            select(Article.canonical_url)
+            .join(StoryArticle, StoryArticle.article_id == Article.id)
+            .where(StoryArticle.story_id == story_id)
+            .order_by(desc(Article.published_at))
+            .limit(8)
+        ).scalars().all()
+        urls: list[str] = []
+        for raw in rows:
+            if raw is None:
+                continue
+            url = str(raw).strip()
+            if not url or url in urls:
+                continue
+            urls.append(url)
+        return urls
+
     def _latest_signal_data(self, db: Session, signal_type: str) -> dict[str, float]:
         row = db.execute(
             select(Signal).where(Signal.signal_type == signal_type).order_by(desc(Signal.observed_at)).limit(1)
@@ -1029,10 +1047,12 @@ class PublishingAgent(BaseAgent):
 
     def _build_signal_payload_with_rows(self, db: Session, stories: list[Story], values: dict[str, float]) -> dict[str, object]:
         story_source_cache: dict[int, set[int]] = {}
+        story_url_cache: dict[int, list[str]] = {}
         rows: list[dict[str, object]] = []
         for entity, value in sorted(values.items(), key=lambda item: item[1], reverse=True):
             normalized = entity.lower()
             sources: set[int] = set()
+            evidence_urls: list[str] = []
             for story in stories:
                 text = self._story_text(story)
                 if normalized not in text:
@@ -1040,6 +1060,15 @@ class PublishingAgent(BaseAgent):
                 if story.id not in story_source_cache:
                     story_source_cache[story.id] = self._story_source_ids(db, story.id)
                 sources.update(story_source_cache[story.id])
+                if story.id not in story_url_cache:
+                    story_url_cache[story.id] = self._story_source_urls(db, story.id)
+                for url in story_url_cache[story.id]:
+                    if url not in evidence_urls:
+                        evidence_urls.append(url)
+                    if len(evidence_urls) >= 3:
+                        break
+                if len(evidence_urls) >= 3:
+                    continue
             source_count = len(sources)
             confidence = "high" if source_count >= 3 else "medium" if source_count >= 2 else "estimated"
             rows.append(
@@ -1048,6 +1077,7 @@ class PublishingAgent(BaseAgent):
                     "value": round(float(value), 1),
                     "confidence": confidence,
                     "source_count": source_count,
+                    "evidence_urls": evidence_urls,
                 }
             )
 
@@ -1503,6 +1533,94 @@ class PublishingAgent(BaseAgent):
             raise
 
 
+class LeaderboardValidationAgent(BaseAgent):
+    name = "leaderboard_validation"
+    SIGNAL_TYPES = ("app_adoption", "model_activity", "funding_tracker", "trending_repos")
+
+    def _to_float(self, value: object) -> float | None:
+        if isinstance(value, (float, int)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        return None
+
+    def _validate_payload(self, payload: dict) -> tuple[dict, int, int]:
+        rows_raw = payload.get("rows")
+        if not isinstance(rows_raw, list):
+            rows_raw = []
+
+        kept_rows: list[dict[str, object]] = []
+        dropped = 0
+        for raw in rows_raw:
+            if not isinstance(raw, dict):
+                dropped += 1
+                continue
+            entity = raw.get("entity")
+            numeric = self._to_float(raw.get("value"))
+            source_count_raw = raw.get("source_count")
+            evidence_raw = raw.get("evidence_urls")
+            if not isinstance(entity, str) or numeric is None:
+                dropped += 1
+                continue
+            source_count = int(source_count_raw) if isinstance(source_count_raw, (int, float)) else 0
+            evidence_urls = [str(url) for url in evidence_raw] if isinstance(evidence_raw, list) else []
+            evidence_urls = [url for url in evidence_urls if url.strip()]
+            if source_count <= 0 or not evidence_urls:
+                dropped += 1
+                continue
+            kept_rows.append(
+                {
+                    "entity": entity,
+                    "value": round(numeric, 1),
+                    "confidence": raw.get("confidence") if isinstance(raw.get("confidence"), str) else "medium",
+                    "source_count": source_count,
+                    "evidence_urls": evidence_urls[:3],
+                }
+            )
+
+        kept_rows.sort(key=lambda row: float(row["value"]), reverse=True)
+        out: dict[str, object] = {}
+        for row in kept_rows:
+            out[str(row["entity"])] = row["value"]
+        out["rows"] = kept_rows
+        out["validation"] = {
+            "validated_at": datetime.now(timezone.utc).isoformat(),
+            "kept_rows": len(kept_rows),
+            "dropped_rows": dropped,
+        }
+        return out, len(kept_rows), dropped
+
+    def run(self, db: Session) -> AgentResult:
+        run = self._start_run(db)
+        try:
+            updated = 0
+            kept_total = 0
+            for signal_type in self.SIGNAL_TYPES:
+                signal = db.execute(
+                    select(Signal).where(Signal.signal_type == signal_type).order_by(desc(Signal.observed_at)).limit(1)
+                ).scalar_one_or_none()
+                if signal is None:
+                    continue
+                payload = signal.value_json or {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                validated, kept, _dropped = self._validate_payload(payload)
+                signal.value_json = validated
+                db.add(signal)
+                updated += 1
+                kept_total += kept
+            db.commit()
+            result = AgentResult(processed=updated, updated=kept_total)
+            self._finish_run(db, run, result)
+            return result
+        except Exception as exc:
+            self._fail_run(db, run, exc)
+            raise
+
+
 class MonitoringQaAgent(BaseAgent):
     name = "monitoring_qa"
 
@@ -1587,6 +1705,7 @@ PIPELINE = {
     "self_heal": SelfHealAgent(),
     "policy_tuning": PolicyTuningAgent(),
     "publishing": PublishingAgent(),
+    "leaderboard_validation": LeaderboardValidationAgent(),
 }
 
 
@@ -1649,6 +1768,7 @@ def run_pipeline(db: Session) -> dict[str, dict]:
         "self_heal",
         "policy_tuning",
         "publishing",
+        "leaderboard_validation",
     ]
     return run_pipeline_steps(db, ordered)
 

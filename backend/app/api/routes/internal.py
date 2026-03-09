@@ -143,6 +143,12 @@ def run_autonomous_cycle(
             "created": publish_result["created"],
             "updated": publish_result["updated"],
         }
+        validation_result = run_single_agent(db, "leaderboard_validation")
+        results["leaderboard_validation"] = {
+            "processed": validation_result["processed"],
+            "created": validation_result["created"],
+            "updated": validation_result["updated"],
+        }
         return AutonomousCycleResult(
             status="pass",
             action="published",

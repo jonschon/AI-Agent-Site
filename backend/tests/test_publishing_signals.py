@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.agents.pipeline import PublishingAgent
+from app.agents.pipeline import LeaderboardValidationAgent, PublishingAgent
 from app.db.base import Base
 from app.models.news import Signal
 
@@ -69,3 +69,52 @@ def test_signal_payload_includes_rows_with_confidence_and_source_count() -> None
         assert isinstance(first, dict)
         assert "confidence" in first
         assert "source_count" in first
+        assert "evidence_urls" in first
+
+
+def test_leaderboard_validation_agent_drops_rows_without_evidence() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    validator = LeaderboardValidationAgent()
+
+    with Session(engine) as db:
+        db.add(
+            Signal(
+                signal_type="app_adoption",
+                title="Monthly Active Users",
+                value_json={
+                    "ChatGPT": 300.0,
+                    "Claude": 25.0,
+                    "rows": [
+                        {
+                            "entity": "ChatGPT",
+                            "value": 300.0,
+                            "confidence": "high",
+                            "source_count": 2,
+                            "evidence_urls": ["https://example.com/a"],
+                        },
+                        {
+                            "entity": "Claude",
+                            "value": 25.0,
+                            "confidence": "estimated",
+                            "source_count": 0,
+                            "evidence_urls": [],
+                        },
+                    ],
+                },
+                observed_at=datetime.now(timezone.utc),
+                rank=1,
+            )
+        )
+        db.commit()
+
+        result = validator.run(db)
+        assert result.processed == 1
+
+        latest = db.query(Signal).filter(Signal.signal_type == "app_adoption").order_by(Signal.id.desc()).first()
+        assert latest is not None
+        rows = latest.value_json.get("rows")
+        assert isinstance(rows, list)
+        assert len(rows) == 1
+        assert rows[0]["entity"] == "ChatGPT"
+        assert "Claude" not in latest.value_json
