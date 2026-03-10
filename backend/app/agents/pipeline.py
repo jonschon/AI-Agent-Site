@@ -163,7 +163,8 @@ class CrawlerAgent(BaseAgent):
                 object_type="source",
                 object_id=str(source.id),
                 reason=f"Crawler source failure: {reason}",
-                severity="high" if failures >= settings.self_heal_max_source_failures else "medium",
+                # Source crawl instability should not block publishing.
+                severity="medium",
                 payload_json={
                     "source_name": source.name,
                     "domain": source.domain,
@@ -185,6 +186,18 @@ class CrawlerAgent(BaseAgent):
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
+            # Downgrade legacy high source failures so they stop blocking prepublish policy.
+            legacy_high = db.execute(
+                select(ExceptionItem).where(
+                    ExceptionItem.agent_name == self.name,
+                    ExceptionItem.object_type == "source",
+                    ExceptionItem.status == ExceptionStatus.open,
+                    ExceptionItem.severity == "high",
+                )
+            ).scalars().all()
+            for item in legacy_high:
+                item.severity = "medium"
+
             sources = db.execute(select(Source).where(Source.is_active == True)).scalars().all()  # noqa: E712
             if sources:
                 # Rotate source order each cycle so global caps do not consistently favor the same sources.
