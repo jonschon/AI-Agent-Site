@@ -988,7 +988,7 @@ class PublishingAgent(BaseAgent):
     MODEL_BUILDER_ENTITIES = ("OpenAI", "Anthropic", "Google DeepMind", "xAI", "Mistral", "Meta AI")
     FOUNDATION_MODEL_ENTITIES = ("GPT-4", "Claude", "Gemini", "Llama", "Grok", "Mistral Large")
     INFRA_ENTITIES = ("NVIDIA", "AWS", "Microsoft Azure", "Google Cloud", "CoreWeave", "AMD")
-    APP_ENTITIES = ("ChatGPT", "Claude", "Gemini", "Perplexity", "Microsoft Copilot", "Meta AI")
+    APP_ENTITIES = ("ChatGPT", "Claude", "Gemini", "Grok", "Perplexity", "Microsoft Copilot", "Meta AI")
     VALUATION_CONTEXT_TERMS = ("valuation", "post-money", "pre-money", "funding", "raised", "round", "investment")
     COMPUTE_CONTEXT_TERMS = ("capacity", "installed", "total capacity", "cluster", "datacenter", "deployment")
     MAU_CONTEXT_TERMS = ("monthly active users", "mau", "maus")
@@ -1528,6 +1528,7 @@ class PublishingAgent(BaseAgent):
             "ChatGPT": ("chatgpt",),
             "Claude": ("claude.ai", "claude"),
             "Gemini": ("gemini",),
+            "Grok": ("grok", "xai grok", "x ai grok"),
             "Perplexity": ("perplexity",),
             "Microsoft Copilot": ("copilot", "microsoft copilot"),
             "Meta AI": ("meta ai",),
@@ -1536,6 +1537,7 @@ class PublishingAgent(BaseAgent):
             "ChatGPT": 300.0,
             "Claude": 25.0,
             "Gemini": 45.0,
+            "Grok": 20.0,
             "Perplexity": 15.0,
             "Microsoft Copilot": 30.0,
             "Meta AI": 50.0,
