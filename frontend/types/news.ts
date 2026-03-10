@@ -43,4 +43,5 @@ export type NewsroomStats = {
   articles_processed: number;
   stories_detected: number;
   last_update_time: string | null;
+  last_pull_time: string | null;
 };

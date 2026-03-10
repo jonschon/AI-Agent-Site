@@ -80,6 +80,13 @@ a {
   border-bottom: 1px solid var(--line);
 }
 
+.filters-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
 .logo {
   font-family: "Iowan Old Style", "Georgia", "Times New Roman", serif;
   font-size: 1.62rem;
@@ -338,6 +345,12 @@ a {
   background: #fff;
 }
 
+.last-refreshed {
+  font-size: 0.75rem;
+  color: #5e6771;
+  white-space: nowrap;
+}
+
 .quick-item {
   border-bottom: 1px dashed var(--line);
   padding: 0.62rem 0;
@@ -560,6 +573,14 @@ a {
     padding: 0;
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .filters-wrap {
+    align-items: flex-start;
+  }
+
+  .last-refreshed {
+    white-space: normal;
   }
 
   .story-main.with-image {

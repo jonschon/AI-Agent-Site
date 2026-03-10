@@ -62,6 +62,7 @@ class NewsroomStats(BaseModel):
     articles_processed: int
     stories_detected: int
     last_update_time: Optional[datetime]
+    last_pull_time: Optional[datetime]
 
 
 class AgentRunOut(BaseModel):

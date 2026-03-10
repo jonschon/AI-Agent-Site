@@ -23,6 +23,7 @@ from app.models.news import (
     StoryStatus,
     StoryTag,
     Tag,
+    RunStatus,
 )
 from app.schemas.news import (
     AgentRunOut,
@@ -347,10 +348,18 @@ def newsroom_stats(db: Session) -> NewsroomStats:
     article_count = db.execute(select(func.count(Article.id))).scalar_one()
     story_count = db.execute(select(func.count(Story.id))).scalar_one()
     last_update = db.execute(select(func.max(FeedSnapshot.published_at))).scalar_one_or_none()
+    last_pull = db.execute(
+        select(func.max(AgentRun.ended_at)).where(
+            AgentRun.agent_name == "crawler",
+            AgentRun.status == RunStatus.success,
+            AgentRun.ended_at.is_not(None),
+        )
+    ).scalar_one_or_none()
     return NewsroomStats(
         articles_processed=article_count,
         stories_detected=story_count,
         last_update_time=last_update,
+        last_pull_time=last_pull,
     )
 
 

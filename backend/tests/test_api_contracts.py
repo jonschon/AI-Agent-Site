@@ -34,7 +34,7 @@ EXPECTED_STORY_KEYS = {
 EXPECTED_SOURCE_KEYS = {"source_name", "url"}
 EXPECTED_DISCUSSION_KEYS = {"platform", "url"}
 EXPECTED_SIGNAL_KEYS = {"type", "title", "data", "observed_at"}
-EXPECTED_NEWSROOM_KEYS = {"articles_processed", "stories_detected", "last_update_time"}
+EXPECTED_NEWSROOM_KEYS = {"articles_processed", "stories_detected", "last_update_time", "last_pull_time"}
 EXPECTED_SECTION_KEYS = {"name", "stories"}
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "contracts" / "v1"
@@ -173,6 +173,8 @@ def test_newsroom_stats_contract(monkeypatch) -> None:
     assert isinstance(payload["stories_detected"], int)
     if payload["last_update_time"] is not None:
         datetime.fromisoformat(payload["last_update_time"].replace("Z", "+00:00"))
+    if payload["last_pull_time"] is not None:
+        datetime.fromisoformat(payload["last_pull_time"].replace("Z", "+00:00"))
 
 
 def test_stories_contract_snapshot_v1(monkeypatch) -> None:
