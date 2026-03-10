@@ -1062,14 +1062,24 @@ class PublishingAgent(BaseAgent):
             summary = str(entry.get("summary") or "").strip()
             link = str(entry.get("link") or "").strip()
             source_title = ""
+            source_href = ""
             source_obj = entry.get("source")
             if isinstance(source_obj, dict):
                 source_title = str(source_obj.get("title") or "").strip()
+                source_href = str(source_obj.get("href") or "").strip()
             if not title or not link:
                 continue
             if source_title and not any(name.lower() in source_title.lower() for name in self.TRUSTED_METRIC_SOURCES):
                 continue
-            out.append({"text": f"{title} {summary}".lower(), "url": link})
+            evidence_url = source_href or link
+            out.append(
+                {
+                    "text": f"{title} {summary}".lower(),
+                    "url": evidence_url,
+                    "publisher": source_title,
+                    "source_link": link,
+                }
+            )
         return out
 
     def _story_source_diversity(self, db: Session, story_id: int) -> int:
@@ -1204,6 +1214,7 @@ class PublishingAgent(BaseAgent):
                     seen_urls.add(url)
                     results.append(row)
             best_value: float | None = None
+            matched_publishers: set[str] = set()
             for result in results:
                 text = result.get("text", "")
                 if not any(alias in text for alias in aliases):
@@ -1216,9 +1227,14 @@ class PublishingAgent(BaseAgent):
                 url = result.get("url", "")
                 if url and url not in evidence_urls[entity]:
                     evidence_urls[entity].append(url)
-                support_counts[entity] += 1
+                publisher = result.get("publisher", "").strip().lower()
+                if publisher:
+                    matched_publishers.add(publisher)
+                elif url:
+                    matched_publishers.add(url)
             if best_value is not None:
                 enriched[entity] = round(max(float(enriched.get(entity, 0.0)), float(best_value)), 1)
+            support_counts[entity] += len(matched_publishers)
         return enriched, evidence_urls, support_counts
 
     def _extract_valuations_billions(self, text: str) -> list[float]:
