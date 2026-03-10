@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { NewsroomStats } from "@/types/news";
 
 const categories = ["Top News", "Models", "Startups", "Agents", "Research", "Infrastructure"];
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/v1";
 
 function formatLastRefreshed(raw: string | null): string {
   if (!raw) return "Pending";
@@ -28,7 +27,7 @@ export function Header() {
     const controller = new AbortController();
     async function loadStats() {
       try {
-        const response = await fetch(`${API_BASE}/stats/newsroom`, {
+        const response = await fetch("/api/newsroom-stats", {
           signal: controller.signal,
           cache: "no-store",
         });
