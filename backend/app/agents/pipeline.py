@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import statistics
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote_plus
 
+import feedparser
 from slugify import slugify
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -989,10 +992,51 @@ class PublishingAgent(BaseAgent):
     VALUATION_CONTEXT_TERMS = ("valuation", "post-money", "pre-money", "funding", "raised", "round", "investment")
     COMPUTE_CONTEXT_TERMS = ("capacity", "installed", "total capacity", "cluster", "datacenter", "deployment")
     MAU_CONTEXT_TERMS = ("monthly active users", "mau", "maus")
+    TRUSTED_METRIC_SOURCES = (
+        "TechCrunch",
+        "Reuters",
+        "Bloomberg",
+        "The Information",
+        "Financial Times",
+        "CNBC",
+        "The Wall Street Journal",
+        "Forbes",
+        "VentureBeat",
+        "OpenAI",
+        "Anthropic",
+        "Google",
+        "Microsoft",
+        "Meta",
+    )
 
     def _story_text(self, story: Story) -> str:
         bullets = " ".join(story.bullets_json or [])
         return f"{story.headline} {bullets}".lower()
+
+    def _search_google_news(self, query: str, limit: int = 8) -> list[dict[str, str]]:
+        # Keep test runs deterministic and fast.
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return []
+        feed_url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
+        try:
+            parsed = feedparser.parse(feed_url)
+        except Exception:  # noqa: BLE001
+            return []
+        out: list[dict[str, str]] = []
+        for entry in (parsed.entries or [])[:limit]:
+            title = str(entry.get("title") or "").strip()
+            summary = str(entry.get("summary") or "").strip()
+            link = str(entry.get("link") or "").strip()
+            source_title = ""
+            source_obj = entry.get("source")
+            if isinstance(source_obj, dict):
+                source_title = str(source_obj.get("title") or "").strip()
+            if not title or not link:
+                continue
+            if source_title and not any(name.lower() in source_title.lower() for name in self.TRUSTED_METRIC_SOURCES):
+                continue
+            out.append({"text": f"{title} {summary}".lower(), "url": link})
+        return out
 
     def _story_source_diversity(self, db: Session, story_id: int) -> int:
         count = db.execute(
@@ -1048,9 +1092,19 @@ class PublishingAgent(BaseAgent):
         allowed = set(allowed_entities)
         return {key: value for key, value in data.items() if key in allowed}
 
-    def _build_signal_payload_with_rows(self, db: Session, stories: list[Story], values: dict[str, float]) -> dict[str, object]:
+    def _build_signal_payload_with_rows(
+        self,
+        db: Session,
+        stories: list[Story],
+        values: dict[str, float],
+        *,
+        external_evidence: dict[str, list[str]] | None = None,
+        external_support_counts: dict[str, int] | None = None,
+    ) -> dict[str, object]:
         story_source_cache: dict[int, set[int]] = {}
         story_url_cache: dict[int, list[str]] = {}
+        external_evidence = external_evidence or {}
+        external_support_counts = external_support_counts or {}
         rows: list[dict[str, object]] = []
         for entity, value in sorted(values.items(), key=lambda item: item[1], reverse=True):
             normalized = entity.lower()
@@ -1072,7 +1126,12 @@ class PublishingAgent(BaseAgent):
                         break
                 if len(evidence_urls) >= 3:
                     continue
-            source_count = len(sources)
+            for url in external_evidence.get(entity, []):
+                if url and url not in evidence_urls:
+                    evidence_urls.append(url)
+                if len(evidence_urls) >= 3:
+                    break
+            source_count = len(sources) + int(external_support_counts.get(entity, 0))
             confidence = "high" if source_count >= 3 else "medium" if source_count >= 2 else "estimated"
             rows.append(
                 {
@@ -1087,6 +1146,37 @@ class PublishingAgent(BaseAgent):
         payload: dict[str, object] = {key: round(float(value), 1) for key, value in values.items()}
         payload["rows"] = rows
         return payload
+
+    def _augment_metric_from_google_news(
+        self,
+        entities: dict[str, tuple[str, ...]],
+        current_values: dict[str, float],
+        *,
+        metric_query_suffix: str,
+        extract_metric,
+    ) -> tuple[dict[str, float], dict[str, list[str]], dict[str, int]]:
+        enriched = dict(current_values)
+        evidence_urls: dict[str, list[str]] = {entity: [] for entity in entities}
+        support_counts: dict[str, int] = {entity: 0 for entity in entities}
+        for entity, aliases in entities.items():
+            results = self._search_google_news(f"{entity} {metric_query_suffix}", limit=8)
+            best_value: float | None = None
+            for result in results:
+                text = result.get("text", "")
+                if not any(alias in text for alias in aliases):
+                    continue
+                values = extract_metric(text)
+                if not values:
+                    continue
+                parsed_value = max(values)
+                best_value = parsed_value if best_value is None else max(best_value, parsed_value)
+                url = result.get("url", "")
+                if url and url not in evidence_urls[entity]:
+                    evidence_urls[entity].append(url)
+                support_counts[entity] += 1
+            if best_value is not None:
+                enriched[entity] = round(max(float(enriched.get(entity, 0.0)), float(best_value)), 1)
+        return enriched, evidence_urls, support_counts
 
     def _extract_valuations_billions(self, text: str) -> list[float]:
         values: list[float] = []
@@ -1244,7 +1334,9 @@ class PublishingAgent(BaseAgent):
             cap=99.0,
         )
 
-    def _build_model_builder_valuation(self, db: Session, stories: list[Story]) -> dict[str, float]:
+    def _build_model_builder_valuation(
+        self, db: Session, stories: list[Story], *, return_details: bool = False
+    ) -> dict[str, float] | tuple[dict[str, float], dict[str, list[str]], dict[str, int]]:
         entities = {
             "OpenAI": ("openai",),
             "Anthropic": ("anthropic",),
@@ -1302,10 +1394,24 @@ class PublishingAgent(BaseAgent):
             if entity in valuations:
                 valuations[entity] = round(max(float(valuations[entity]), base), 1)
 
+        external_evidence: dict[str, list[str]] = {}
+        external_support: dict[str, int] = {}
+        if stories:
+            valuations, external_evidence, external_support = self._augment_metric_from_google_news(
+                entities,
+                valuations,
+                metric_query_suffix="valuation funding round",
+                extract_metric=self._extract_valuations_billions_with_context,
+            )
+            for entity, count in external_support.items():
+                if count > 0:
+                    support_counts[entity] = support_counts.get(entity, 0) + count
+
         valuations = self._apply_outlier_guard(
             valuations,
             self._sanitize_signal_entities(self._latest_signal_data(db, "funding_tracker"), self.MODEL_BUILDER_ENTITIES),
             support_counts,
+            max_ratio=8.0,
         )
 
         ranked = sorted(valuations.items(), key=lambda item: item[1], reverse=True)[:10]
@@ -1316,9 +1422,13 @@ class PublishingAgent(BaseAgent):
                     out[entity] = baseline_vals[entity]
                 if len(out) >= 3:
                     break
+        if return_details:
+            return out, external_evidence, external_support
         return out
 
-    def _build_app_mau(self, db: Session, stories: list[Story]) -> dict[str, float]:
+    def _build_app_mau(
+        self, db: Session, stories: list[Story], *, return_details: bool = False
+    ) -> dict[str, float] | tuple[dict[str, float], dict[str, list[str]], dict[str, int]]:
         entities = {
             "ChatGPT": ("chatgpt",),
             "Claude": ("claude.ai", "claude"),
@@ -1376,10 +1486,24 @@ class PublishingAgent(BaseAgent):
             if entity in mau:
                 mau[entity] = round(max(float(mau[entity]), base), 1)
 
+        external_evidence: dict[str, list[str]] = {}
+        external_support: dict[str, int] = {}
+        if stories:
+            mau, external_evidence, external_support = self._augment_metric_from_google_news(
+                entities,
+                mau,
+                metric_query_suffix="monthly active users mau",
+                extract_metric=self._extract_mau_millions,
+            )
+            for entity, count in external_support.items():
+                if count > 0:
+                    support_counts[entity] = support_counts.get(entity, 0) + count
+
         mau = self._apply_outlier_guard(
             mau,
             self._sanitize_signal_entities(self._latest_signal_data(db, "app_adoption"), self.APP_ENTITIES),
             support_counts,
+            max_ratio=8.0,
         )
 
         ranked = sorted(mau.items(), key=lambda item: item[1], reverse=True)[:10]
@@ -1390,6 +1514,8 @@ class PublishingAgent(BaseAgent):
                     out[entity] = baseline_mau_millions[entity]
                 if len(out) >= 4:
                     break
+        if return_details:
+            return out, external_evidence, external_support
         return out
 
     def _build_foundation_model_gpqa(self, db: Session, stories: list[Story]) -> dict[str, float]:
@@ -1551,14 +1677,22 @@ class PublishingAgent(BaseAgent):
                 story.last_published_at = datetime.now(timezone.utc)
 
             infra = self._build_infrastructure_compute_capacity(db, leaderboard_stories)
-            valuations = self._build_model_builder_valuation(db, leaderboard_stories)
+            valuations, valuation_evidence, valuation_support = self._build_model_builder_valuation(
+                db, leaderboard_stories, return_details=True
+            )
             models = self._build_foundation_model_gpqa(db, leaderboard_stories)
-            mau = self._build_app_mau(db, leaderboard_stories)
+            mau, mau_evidence, mau_support = self._build_app_mau(db, leaderboard_stories, return_details=True)
             signals = [
                 Signal(
                     signal_type="app_adoption",
                     title="Monthly Active Users",
-                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, mau),
+                    value_json=self._build_signal_payload_with_rows(
+                        db,
+                        leaderboard_stories,
+                        mau,
+                        external_evidence=mau_evidence,
+                        external_support_counts=mau_support,
+                    ),
                     rank=1,
                 ),
                 Signal(
@@ -1570,7 +1704,13 @@ class PublishingAgent(BaseAgent):
                 Signal(
                     signal_type="funding_tracker",
                     title="Model Builders",
-                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, valuations),
+                    value_json=self._build_signal_payload_with_rows(
+                        db,
+                        leaderboard_stories,
+                        valuations,
+                        external_evidence=valuation_evidence,
+                        external_support_counts=valuation_support,
+                    ),
                     rank=3,
                 ),
                 Signal(
