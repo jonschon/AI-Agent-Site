@@ -20,6 +20,7 @@ from app.models.news import (
     ArticleEmbedding,
     DiscussionLink,
     ExceptionItem,
+    ExceptionStatus,
     FeedSnapshot,
     FeedSnapshotItem,
     RawArticle,
@@ -1988,29 +1989,62 @@ class LeaderboardValidationAgent(BaseAgent):
 
 class MonitoringQaAgent(BaseAgent):
     name = "monitoring_qa"
+    BULLET_REASON = "Story bullet count outside expected range"
 
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
         try:
+            # Legacy runs created these as high severity; downgrade so they stop blocking publish.
+            legacy_high = db.execute(
+                select(ExceptionItem).where(
+                    ExceptionItem.agent_name == self.name,
+                    ExceptionItem.reason == self.BULLET_REASON,
+                    ExceptionItem.status == ExceptionStatus.open,
+                    ExceptionItem.severity == "high",
+                )
+            ).scalars().all()
+            for item in legacy_high:
+                item.severity = "medium"
+
             stories = db.execute(select(Story).where(Story.status == StoryStatus.active)).scalars().all()
             created = 0
+            resolved = 0
             for story in stories:
                 bullets = story.bullets_json or []
                 expected_max = target_bullet_count(story.tier, story.importance_score)
+                existing_open = db.execute(
+                    select(ExceptionItem).where(
+                        ExceptionItem.agent_name == self.name,
+                        ExceptionItem.object_type == "story",
+                        ExceptionItem.object_id == str(story.id),
+                        ExceptionItem.reason == self.BULLET_REASON,
+                        ExceptionItem.status == ExceptionStatus.open,
+                    )
+                ).scalars().all()
+
                 if not (1 <= len(bullets) <= expected_max):
+                    # Avoid duplicate open exceptions for the same story/rule.
+                    if existing_open:
+                        continue
                     db.add(
                         ExceptionItem(
                             agent_name=self.name,
                             object_type="story",
                             object_id=str(story.id),
-                            reason="Story bullet count outside expected range",
-                            severity="high",
+                            reason=self.BULLET_REASON,
+                            severity="medium",
                             payload_json={"bullets": bullets, "expected_max": expected_max},
                         )
                     )
                     created += 1
+                elif existing_open:
+                    now = datetime.now(timezone.utc)
+                    for item in existing_open:
+                        item.status = ExceptionStatus.resolved
+                        item.resolved_at = now
+                        resolved += 1
             db.commit()
-            result = AgentResult(processed=len(stories), created=created)
+            result = AgentResult(processed=len(stories), created=created, updated=resolved)
             self._finish_run(db, run, result)
             return result
         except Exception as exc:
