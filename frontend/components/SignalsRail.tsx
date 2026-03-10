@@ -12,7 +12,6 @@ type RankingTable = {
   topic: string;
   metric: string;
   scoreLabel: string;
-  updatedAt?: string;
   rows: RankingRow[];
 };
 
@@ -55,13 +54,6 @@ const RANKING_CONFIGS: RankingConfig[] = [
     signalType: "trending_repos",
   },
 ];
-
-function formatObservedAt(value?: string): string {
-  if (!value) return "n/a";
-  const asDate = new Date(value);
-  if (Number.isNaN(asDate.getTime())) return "n/a";
-  return asDate.toLocaleDateString();
-}
 
 function numberFromSignal(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -164,7 +156,7 @@ function toRankingRows(signal: SignalWidget, scoreSuffix?: string, scorePrefix?:
   return [];
 }
 
-function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTable[] {
+function buildRankings(signals: SignalWidget[]): RankingTable[] {
   const byType = new Map<string, SignalWidget>();
   for (const signal of signals) {
     const existing = byType.get(signal.type);
@@ -180,8 +172,6 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
       byType.set(signal.type, signal);
     }
   }
-  const updatedAt = stats.last_update_time ?? undefined;
-
   return RANKING_CONFIGS.map((config) => {
     const signal = config.signalType ? byType.get(config.signalType) : undefined;
 
@@ -191,7 +181,6 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
         topic: config.topic,
         metric: config.metric,
         scoreLabel: config.scoreLabel,
-        updatedAt: signal.observed_at,
         rows:
           formattedRows.length > 0
             ? formattedRows
@@ -203,14 +192,13 @@ function buildRankings(signals: SignalWidget[], stats: NewsroomStats): RankingTa
       topic: config.topic,
       metric: config.metric,
       scoreLabel: config.scoreLabel,
-      updatedAt,
       rows: [{ rank: 1, label: "Insufficient public data", score: "n/a" }],
     };
   });
 }
 
-export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats: NewsroomStats }) {
-  const rankings = buildRankings(signals, stats);
+export function SignalsRail({ signals }: { signals: SignalWidget[]; stats: NewsroomStats }) {
+  const rankings = buildRankings(signals);
 
   return (
     <aside className="rail" aria-label="Newsroom rankings">
@@ -224,7 +212,6 @@ export function SignalsRail({ signals, stats }: { signals: SignalWidget[]; stats
             <h5>{table.topic}</h5>
             <span className="metric-chip">{table.metric}</span>
           </div>
-          <div className="meta-line">Updated: {formatObservedAt(table.updatedAt)}</div>
           <table className="ranking-table">
             <thead>
               <tr>
