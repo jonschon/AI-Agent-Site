@@ -28,6 +28,8 @@ from app.services.memory_service import list_memory
 from app.services.ops_service import collect_ops_quality_metrics, evaluate_ops_policy, evaluate_prepublish_policy
 
 router = APIRouter(prefix="/internal")
+AUTONOMOUS_HOLD_REASON = "Autonomous cycle held due to policy blockers"
+AUTONOMOUS_HOLD_OBJECT_ID = "autonomous_cycle_hold"
 
 
 def _check_internal_auth(x_internal_api_key: Optional[str] = Header(default=None)) -> None:
@@ -157,19 +159,39 @@ def run_autonomous_cycle(
             pipeline_results=results,
         )
 
-    db.add(
-        ExceptionItem(
-            agent_name="autonomous_cycle",
-            object_type="cycle",
-            object_id=datetime.now(timezone.utc).isoformat(),
-            reason="Autonomous cycle held due to policy blockers",
-            severity="high",
-            payload_json={
-                "blocking_reasons": prepublish_policy.blocking_reasons,
-                "generated_at": prepublish_policy.metrics.generated_at.isoformat(),
-            },
+    existing_holds = db.execute(
+        select(ExceptionItem).where(
+            ExceptionItem.agent_name == "autonomous_cycle",
+            ExceptionItem.object_type == "cycle",
+            ExceptionItem.reason == AUTONOMOUS_HOLD_REASON,
+            ExceptionItem.status == ExceptionStatus.open,
         )
-    )
+    ).scalars().all()
+    for item in existing_holds:
+        if item.severity == "high":
+            item.severity = "medium"
+
+    hold = next((item for item in existing_holds if item.object_id == AUTONOMOUS_HOLD_OBJECT_ID), None)
+    if hold is None:
+        db.add(
+            ExceptionItem(
+                agent_name="autonomous_cycle",
+                object_type="cycle",
+                object_id=AUTONOMOUS_HOLD_OBJECT_ID,
+                reason=AUTONOMOUS_HOLD_REASON,
+                severity="medium",
+                payload_json={
+                    "blocking_reasons": prepublish_policy.blocking_reasons,
+                    "generated_at": prepublish_policy.metrics.generated_at.isoformat(),
+                },
+            )
+        )
+    else:
+        hold.payload_json = {
+            "blocking_reasons": prepublish_policy.blocking_reasons,
+            "generated_at": prepublish_policy.metrics.generated_at.isoformat(),
+        }
+        db.add(hold)
     db.commit()
 
     return AutonomousCycleResult(

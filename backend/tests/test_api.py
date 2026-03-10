@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.main import app
+from app.db.session import SessionLocal
+from app.models.news import ExceptionItem, ExceptionStatus
 from app.schemas.news import OpsQualityMetrics, OpsPolicyEvaluation
 
 
@@ -97,3 +100,69 @@ def test_internal_autonomous_cycle_holds_when_pipeline_already_running(monkeypat
     payload = response.json()
     assert payload["status"] == "hold"
     assert payload["action"] == "hold"
+
+
+def test_autonomous_cycle_hold_exception_is_single_and_medium(monkeypatch) -> None:
+    import app.api.routes.internal as internal_routes
+    from app.core.config import settings
+
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(ExceptionItem).where(
+                ExceptionItem.agent_name == "autonomous_cycle",
+                ExceptionItem.reason == "Autonomous cycle held due to policy blockers",
+                ExceptionItem.status == ExceptionStatus.open,
+            )
+        ).scalars().all()
+        for row in rows:
+            row.status = ExceptionStatus.resolved
+            row.resolved_at = datetime.now(timezone.utc)
+        db.commit()
+
+    monkeypatch.setattr(internal_routes, "reconcile_stale_running_agent_runs", lambda db: 0)
+    monkeypatch.setattr(internal_routes, "has_recent_running_pipeline_activity", lambda db: False)
+    monkeypatch.setattr(
+        internal_routes,
+        "run_pipeline_steps",
+        lambda db, steps: {"crawler": {"processed": 1, "created": 0, "updated": 0}},
+    )
+    monkeypatch.setattr(
+        internal_routes,
+        "evaluate_prepublish_policy",
+        lambda db: OpsPolicyEvaluation(
+            status="hold",
+            blocking_reasons=["High severity exceptions exceed limit (19 > 10)"],
+            metrics=OpsQualityMetrics(
+                generated_at=datetime.now(timezone.utc),
+                publish_staleness_minutes=10.0,
+                open_exceptions_total=19,
+                open_exceptions_high=19,
+                bullet_compliance_rate=1.0,
+                cluster_confidence_avg=0.8,
+                cluster_confidence_low_count=0,
+                merged_story_count_24h=0,
+                failed_agent_runs_24h=0,
+                active_story_count=5,
+                agent_last_run={},
+            ),
+        ),
+    )
+
+    for _ in range(2):
+        response = client.post(
+            "/v1/internal/ops/autonomous-cycle",
+            headers={"x-internal-api-key": settings.internal_api_key},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "hold"
+
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(ExceptionItem).where(
+                ExceptionItem.agent_name == "autonomous_cycle",
+                ExceptionItem.reason == "Autonomous cycle held due to policy blockers",
+                ExceptionItem.status == ExceptionStatus.open,
+            )
+        ).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].severity == "medium"
