@@ -1278,6 +1278,20 @@ class PublishingAgent(BaseAgent):
                 values.append(value)
         return values
 
+    def _extract_gpqa_percentages(self, text: str) -> list[float]:
+        values: list[float] = []
+        pattern = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+        for match in pattern.finditer(text):
+            value = float(match.group(1))
+            if not (0 <= value <= 100):
+                continue
+            start, end = match.span()
+            context = text[max(0, start - 80) : min(len(text), end + 80)]
+            if "gpqa" not in context:
+                continue
+            values.append(value)
+        return values
+
     def _extract_compute_capacity_h100_eq(self, text: str) -> list[float]:
         values: list[float] = []
         pattern = re.compile(r"(\d+(?:\.\d+)?)\s*(k|m)?\s*(h100|h200|gpu|gpus)\b", re.IGNORECASE)
@@ -1603,7 +1617,9 @@ class PublishingAgent(BaseAgent):
             return out, external_evidence, external_support
         return out
 
-    def _build_foundation_model_gpqa(self, db: Session, stories: list[Story]) -> dict[str, float]:
+    def _build_foundation_model_gpqa(
+        self, db: Session, stories: list[Story], *, return_details: bool = False
+    ) -> dict[str, float] | tuple[dict[str, float], dict[str, list[str]], dict[str, int]]:
         entities = {
             "GPT-4": ("gpt-4", "gpt4"),
             "Claude": ("claude",),
@@ -1621,6 +1637,7 @@ class PublishingAgent(BaseAgent):
             "Mistral Large": 52.0,
         }
         gpqa_scores: dict[str, float] = {}
+        support_counts: dict[str, int] = {}
         for story in stories:
             text = self._story_text(story)
             if "gpqa" not in text:
@@ -1632,6 +1649,7 @@ class PublishingAgent(BaseAgent):
             for entity, aliases in entities.items():
                 if any(alias in text for alias in aliases):
                     gpqa_scores[entity] = max(gpqa_scores.get(entity, 0.0), best_score)
+                    support_counts[entity] = support_counts.get(entity, 0) + 1
 
         if not gpqa_scores:
             previous = self._sanitize_signal_entities(
@@ -1655,6 +1673,26 @@ class PublishingAgent(BaseAgent):
                     boost = min(3.0, float(mentions.get(entity, 0.0)) * 0.05)
                     gpqa_scores[entity] = round(min(95.0, base + boost), 1)
 
+        external_evidence: dict[str, list[str]] = {}
+        external_support: dict[str, int] = {}
+        if stories:
+            gpqa_scores, external_evidence, external_support = self._augment_metric_from_google_news(
+                entities,
+                gpqa_scores,
+                metric_query_suffixes=("gpqa score", "gpqa benchmark", "gpqa diamond benchmark"),
+                extract_metric=self._extract_gpqa_percentages,
+            )
+            for entity, count in external_support.items():
+                if count > 0:
+                    support_counts[entity] = support_counts.get(entity, 0) + count
+
+        gpqa_scores = self._apply_outlier_guard(
+            gpqa_scores,
+            self._sanitize_signal_entities(self._latest_signal_data(db, "model_activity"), self.FOUNDATION_MODEL_ENTITIES),
+            support_counts,
+            max_ratio=2.0,
+        )
+
         ranked = sorted(gpqa_scores.items(), key=lambda item: item[1], reverse=True)[:10]
         out = {name: round(value, 1) for name, value in ranked}
         if len(out) < 4:
@@ -1663,9 +1701,13 @@ class PublishingAgent(BaseAgent):
                     out[entity] = baseline_gpqa.get(entity, 52.0)
                 if len(out) >= 4:
                     break
+        if return_details:
+            return out, external_evidence, external_support
         return out
 
-    def _build_infrastructure_compute_capacity(self, db: Session, stories: list[Story]) -> dict[str, float]:
+    def _build_infrastructure_compute_capacity(
+        self, db: Session, stories: list[Story], *, return_details: bool = False
+    ) -> dict[str, float] | tuple[dict[str, float], dict[str, list[str]], dict[str, int]]:
         entities = {
             "NVIDIA": ("nvidia",),
             "AWS": ("aws", "amazon web services"),
@@ -1711,14 +1753,35 @@ class PublishingAgent(BaseAgent):
                 if len(capacities) >= 3:
                     break
 
+        external_evidence: dict[str, list[str]] = {}
+        external_support: dict[str, int] = {}
+        if stories:
+            capacities, external_evidence, external_support = self._augment_metric_from_google_news(
+                entities,
+                capacities,
+                metric_query_suffixes=(
+                    "gpu cluster capacity h100",
+                    "ai datacenter capacity gpus",
+                    "installed ai compute capacity",
+                ),
+                extract_metric=self._extract_compute_capacity_h100_eq,
+            )
+            for entity, count in external_support.items():
+                if count > 0:
+                    support_counts[entity] = support_counts.get(entity, 0) + count
+
         capacities = self._apply_outlier_guard(
             capacities,
             self._sanitize_signal_entities(self._latest_signal_data(db, "trending_repos"), self.INFRA_ENTITIES),
             support_counts,
+            max_ratio=8.0,
         )
 
         ranked = sorted(capacities.items(), key=lambda item: item[1], reverse=True)[:10]
-        return {name: round(value, 1) for name, value in ranked}
+        out = {name: round(value, 1) for name, value in ranked}
+        if return_details:
+            return out, external_evidence, external_support
+        return out
 
     def run(self, db: Session) -> AgentResult:
         run = self._start_run(db)
@@ -1761,11 +1824,15 @@ class PublishingAgent(BaseAgent):
                 )
                 story.last_published_at = datetime.now(timezone.utc)
 
-            infra = self._build_infrastructure_compute_capacity(db, leaderboard_stories)
+            infra, infra_evidence, infra_support = self._build_infrastructure_compute_capacity(
+                db, leaderboard_stories, return_details=True
+            )
             valuations, valuation_evidence, valuation_support = self._build_model_builder_valuation(
                 db, leaderboard_stories, return_details=True
             )
-            models = self._build_foundation_model_gpqa(db, leaderboard_stories)
+            models, model_evidence, model_support = self._build_foundation_model_gpqa(
+                db, leaderboard_stories, return_details=True
+            )
             mau, mau_evidence, mau_support = self._build_app_mau(db, leaderboard_stories, return_details=True)
             signals = [
                 Signal(
@@ -1783,7 +1850,13 @@ class PublishingAgent(BaseAgent):
                 Signal(
                     signal_type="model_activity",
                     title="Foundation Models",
-                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, models),
+                    value_json=self._build_signal_payload_with_rows(
+                        db,
+                        leaderboard_stories,
+                        models,
+                        external_evidence=model_evidence,
+                        external_support_counts=model_support,
+                    ),
                     rank=2,
                 ),
                 Signal(
@@ -1801,7 +1874,13 @@ class PublishingAgent(BaseAgent):
                 Signal(
                     signal_type="trending_repos",
                     title="Infrastructure Leaders",
-                    value_json=self._build_signal_payload_with_rows(db, leaderboard_stories, infra),
+                    value_json=self._build_signal_payload_with_rows(
+                        db,
+                        leaderboard_stories,
+                        infra,
+                        external_evidence=infra_evidence,
+                        external_support_counts=infra_support,
+                    ),
                     rank=4,
                 ),
             ]
