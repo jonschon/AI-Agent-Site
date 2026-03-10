@@ -996,12 +996,46 @@ class PublishingAgent(BaseAgent):
         "TechCrunch",
         "Reuters",
         "Bloomberg",
+        "Yahoo Finance",
+        "MarketWatch",
+        "The Economist",
+        "Fortune",
+        "Axios",
+        "Semafor",
+        "The Verge",
+        "Wired",
+        "MIT Technology Review",
+        "Financial Post",
+        "Business Insider",
         "The Information",
         "Financial Times",
         "CNBC",
         "The Wall Street Journal",
         "Forbes",
         "VentureBeat",
+        "The New York Times",
+        "Washington Post",
+        "Associated Press",
+        "AP News",
+        "Seeking Alpha",
+        "Crunchbase",
+        "S&P Global",
+        "McKinsey",
+        "Gartner",
+        "IDC",
+        "Statista",
+        "Canalys",
+        "Counterpoint",
+        "Omdia",
+        "Cloudflare Blog",
+        "Google Cloud Blog",
+        "AWS News Blog",
+        "Microsoft Azure Blog",
+        "NVIDIA Blog",
+        "OpenAI Blog",
+        "xAI",
+        "Mistral AI",
+        "Meta Newsroom",
         "OpenAI",
         "Anthropic",
         "Google",
@@ -1013,7 +1047,7 @@ class PublishingAgent(BaseAgent):
         bullets = " ".join(story.bullets_json or [])
         return f"{story.headline} {bullets}".lower()
 
-    def _search_google_news(self, query: str, limit: int = 8) -> list[dict[str, str]]:
+    def _search_google_news(self, query: str, limit: int = 12) -> list[dict[str, str]]:
         # Keep test runs deterministic and fast.
         if "PYTEST_CURRENT_TEST" in os.environ:
             return []
@@ -1152,14 +1186,23 @@ class PublishingAgent(BaseAgent):
         entities: dict[str, tuple[str, ...]],
         current_values: dict[str, float],
         *,
-        metric_query_suffix: str,
+        metric_query_suffixes: tuple[str, ...],
         extract_metric,
     ) -> tuple[dict[str, float], dict[str, list[str]], dict[str, int]]:
         enriched = dict(current_values)
         evidence_urls: dict[str, list[str]] = {entity: [] for entity in entities}
         support_counts: dict[str, int] = {entity: 0 for entity in entities}
         for entity, aliases in entities.items():
-            results = self._search_google_news(f"{entity} {metric_query_suffix}", limit=8)
+            seen_urls: set[str] = set()
+            results: list[dict[str, str]] = []
+            for suffix in metric_query_suffixes:
+                batch = self._search_google_news(f"{entity} {suffix}", limit=10)
+                for row in batch:
+                    url = row.get("url", "")
+                    if not url or url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    results.append(row)
             best_value: float | None = None
             for result in results:
                 text = result.get("text", "")
@@ -1249,17 +1292,39 @@ class PublishingAgent(BaseAgent):
                 r"(\d+(?:\.\d+)?)\s*(monthly active users|maus|mau)\b",
                 re.IGNORECASE,
             ),
+            re.compile(
+                r"(monthly active users|maus|mau)[^0-9]{0,20}(\d+(?:\.\d+)?)\s*(billion|million|bn|b|mn|m)?\b",
+                re.IGNORECASE,
+            ),
         ]
         for pattern in patterns:
-            for match in pattern.findall(text):
-                amount = float(match[0])
-                unit = match[1].lower() if len(match) > 2 else ""
-                if unit in {"billion", "bn", "b"}:
-                    values.append(amount * 1000.0)
-                elif unit in {"million", "mn", "m"}:
-                    values.append(amount)
+            for match in pattern.finditer(text):
+                groups = match.groups()
+                if len(groups) >= 3 and str(groups[0]).lower() in {"monthly active users", "maus", "mau"}:
+                    amount_raw = groups[1]
+                    unit_raw = groups[2] or ""
                 else:
-                    values.append(amount)
+                    amount_raw = groups[0] if groups else ""
+                    unit_raw = groups[1] if len(groups) > 1 else ""
+                try:
+                    amount = float(str(amount_raw))
+                except ValueError:
+                    continue
+                unit = str(unit_raw).lower()
+                start, end = match.span()
+                context = text[max(0, start - 40) : min(len(text), end + 40)]
+                if "monthly active" not in context and "mau" not in context and "maus" not in context:
+                    continue
+                if any(token in context for token in ("weekly active", "dau", "daily active", "downloads")):
+                    continue
+                if unit in {"billion", "bn", "b"}:
+                    normalized = amount * 1000.0
+                elif unit in {"million", "mn", "m"}:
+                    normalized = amount
+                else:
+                    normalized = amount
+                if 1.0 <= normalized <= 2000.0:
+                    values.append(normalized)
         return values
 
     def _apply_outlier_guard(
@@ -1400,7 +1465,7 @@ class PublishingAgent(BaseAgent):
             valuations, external_evidence, external_support = self._augment_metric_from_google_news(
                 entities,
                 valuations,
-                metric_query_suffix="valuation funding round",
+                metric_query_suffixes=("valuation funding round", "post-money valuation", "funding announcement"),
                 extract_metric=self._extract_valuations_billions_with_context,
             )
             for entity, count in external_support.items():
@@ -1492,7 +1557,11 @@ class PublishingAgent(BaseAgent):
             mau, external_evidence, external_support = self._augment_metric_from_google_news(
                 entities,
                 mau,
-                metric_query_suffix="monthly active users mau",
+                metric_query_suffixes=(
+                    "monthly active users mau",
+                    "user base monthly active users",
+                    "official monthly active users",
+                ),
                 extract_metric=self._extract_mau_millions,
             )
             for entity, count in external_support.items():
